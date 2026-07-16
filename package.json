@@ -10,7 +10,7 @@
     "start": "electron .",
     "test": "node --test tests/*.test.mjs",
     "build:dir": "electron-builder --dir",
-    "build:win": "electron-builder --win nsis portable",
+    "build:win": "electron-builder --win nsis portable --publish never",
     "templates": "node scripts/create-templates.mjs"
   },
   "dependencies": {
@@ -24,7 +24,6 @@
   "build": {
     "appId": "com.local.projectresourceconsole",
     "productName": "项目人员调度台",
-    "artifactName": "项目人员调度台-${version}-${arch}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -62,6 +61,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "项目人员调度台-Setup-${version}-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -72,6 +72,9 @@
         "zh_CN"
       ],
       "language": "2052"
+    },
+    "portable": {
+      "artifactName": "项目人员调度台-Portable-${version}-${arch}.${ext}"
     }
   }
 }
