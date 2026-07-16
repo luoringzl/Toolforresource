@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   emptyDatabase, personUsage, personAvailable, projectHealth, needAllocated,
-  dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns
+  dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
+  assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings
 } from '../src/core.mjs';
 
 function fixture() {
@@ -28,14 +29,52 @@ test('已完成项目不继续占用人员产能', () => {
   assert.equal(personUsage(db,'u1','2026-07-16'),0);
 });
 
+test('资产制作完成后释放资产人员，但导演和视频人员直到项目完成才释放', () => {
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'阶段项目',status:'资产制作完成'});
+  db.people.push(
+    {id:'asset',name:'资产甲',capacity:100,employmentStatus:'在岗'},
+    {id:'director',name:'导演甲',capacity:100,employmentStatus:'在岗'},
+    {id:'video',name:'视频甲',capacity:100,employmentStatus:'在岗'}
+  );
+  db.assignments.push(
+    {id:'a1',projectId:'p1',personId:'asset',role:'资产制作人员',stage:'资产',allocation:60,status:'进行中'},
+    {id:'a2',projectId:'p1',personId:'director',role:'项目负责人/导演',stage:'统筹',allocation:50,status:'已结束',endDate:'2020-01-01'},
+    {id:'a3',projectId:'p1',personId:'video',role:'视频制作人员',stage:'视频',allocation:70,status:'已结束',endDate:'2020-01-01'}
+  );
+  assert.equal(assignmentConsumesCapacity(db,db.assignments[0],'2026-07-16'),false);
+  assert.equal(personUsage(db,'asset','2026-07-16'),0);
+  assert.equal(personUsage(db,'director','2026-07-16'),50);
+  assert.equal(personUsage(db,'video','2026-07-16'),70);
+  db.projects[0].status='已完成';
+  assert.equal(personUsage(db,'director','2026-07-16'),0);
+  assert.equal(personUsage(db,'video','2026-07-16'),0);
+});
+
+test('五个核心岗位支持多人并识别阶段性缺员提醒', () => {
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'缺员项目',status:'视频制作中'});
+  db.people.push({id:'u1',name:'导演甲'},{id:'u2',name:'导演乙'});
+  db.assignments.push(
+    {id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',status:'进行中'},
+    {id:'a2',projectId:'p1',personId:'u2',role:'项目负责人/导演',status:'进行中'}
+  );
+  const coverage=projectRoleCoverage(db,'p1');
+  assert.equal(coverage.find(item=>item.key==='director').count,2);
+  assert.equal(coverage.filter(item=>item.covered).length,1);
+  const warnings=projectStaffingWarnings(db,db.projects[0]);
+  assert.ok(warnings.some(item=>item.critical&&item.text.includes('视频制作人员')));
+  assert.ok(warnings.some(item=>item.text.includes('PM')));
+});
+
 test('用人需求自动计算已分配与缺口', () => {
   const db = fixture();
   assert.equal(needAllocated(db,db.staffingNeeds[0]),70);
 });
 
-test('总览指标识别活跃项目、可用人员和需求', () => {
+test('总览指标识别活跃项目、可用人员、手工需求和核心岗位缺口', () => {
   const db = fixture();
-  assert.deepEqual(dashboardMetrics(db), { active:1, risky:0, availablePeople:1, averageProgress:40, openNeeds:1 });
+  assert.deepEqual(dashboardMetrics(db), { active:1, risky:0, availablePeople:1, averageProgress:40, openNeeds:5 });
 });
 
 test('项目健康度识别风险备注与逾期', () => {
