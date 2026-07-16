@@ -1,8 +1,18 @@
+export const PROJECT_STATUSES = ['待启动', '制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收', '暂停', '已完成', '已取消'];
+
+export const REQUIRED_PROJECT_ROLES = [
+  { key: 'director', label: '项目负责人/导演', function: '导演', stage: '统筹' },
+  { key: 'pm', label: 'PM', function: '项目经理 PM', stage: '统筹' },
+  { key: 'art', label: '美术监制', function: '美术监制', stage: '美术' },
+  { key: 'video', label: '视频制作人员', function: '视频制作', stage: '视频' },
+  { key: 'asset', label: '资产制作人员', function: '资产制作', stage: '资产' }
+];
+
 export const projectFields = [
   ['name', '项目名称', 'text', true], ['shortName', '项目简称', 'text'],
   ['priority', '优先级', 'select', false, ['P0 紧急', 'P1 高', 'P2 中', 'P3 低']],
   ['scope', '集数 / 场 / 镜头', 'text'], ['duration', '总时长', 'text'],
-  ['status', '项目状态', 'select', false, ['待启动', '制作中', '暂停', '待验收', '已完成', '已取消']],
+  ['status', '项目状态', 'select', false, PROJECT_STATUSES],
   ['orderDate', '接单时间', 'date'], ['ddl', 'DDL', 'date'],
   ['clientCompany', '客户企业', 'text'], ['clientContact', '客户对接人', 'text'],
   ['overview', '项目概述', 'textarea'], ['script', '剧本', 'textarea'],
@@ -52,15 +62,34 @@ export function clampPercent(value) {
   return Math.min(100, Math.max(0, Number.isFinite(number) ? number : 0));
 }
 
+export function assignmentRoleKey(assignment = {}) {
+  const role = String(assignment.role || '').replace(/\s+/g, '');
+  const stage = String(assignment.stage || '');
+  if (role.includes('导演') || role.includes('项目负责人')) return 'director';
+  if (role.toUpperCase() === 'PM' || role.includes('项目经理')) return 'pm';
+  if (role.includes('美术监制')) return 'art';
+  if (role.includes('视频') || stage === '视频') return 'video';
+  if (role.includes('资产') || stage === '资产') return 'asset';
+  return '';
+}
+
+export function assignmentConsumesCapacity(db, assignment, today = new Date().toISOString().slice(0, 10)) {
+  if (!assignment) return false;
+  const project = db.projects.find(item => item.id === assignment.projectId);
+  if (!project || ['已完成', '已取消'].includes(project.status)) return false;
+  const roleKey = assignmentRoleKey(assignment);
+  // 导演和视频制作人员跟随项目全周期，只有项目完成/取消或移出项目才释放。
+  if (['director', 'video'].includes(roleKey)) return true;
+  const assetReleasedStatuses = ['资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'];
+  const assetFinished = assetReleasedStatuses.includes(project.status) || clampPercent(project.assetProgress) >= 100 || Boolean(project.assetCompletionDate);
+  if (roleKey === 'asset' && assetFinished) return false;
+  return assignment.status !== '已结束' && (!assignment.endDate || assignment.endDate >= today);
+}
+
 export function personUsage(db, personId, today = new Date().toISOString().slice(0, 10)) {
   return db.assignments
     .filter(item => item.personId === personId)
-    .filter(item => item.status !== '已结束')
-    .filter(item => !item.endDate || item.endDate >= today)
-    .filter(item => {
-      const project = db.projects.find(project => project.id === item.projectId);
-      return project && !['已完成', '已取消'].includes(project.status);
-    })
+    .filter(item => assignmentConsumesCapacity(db, item, today))
     .reduce((total, item) => total + Number(item.allocation || 0), 0);
 }
 
@@ -70,7 +99,31 @@ export function personAvailable(db, person) {
 }
 
 export function projectAssignments(db, projectId) {
-  return db.assignments.filter(item => item.projectId === projectId && item.status !== '已结束');
+  return db.assignments.filter(item => item.projectId === projectId && (item.status !== '已结束' || ['director', 'video'].includes(assignmentRoleKey(item))));
+}
+
+export function projectRoleCoverage(db, projectId) {
+  const assignments = projectAssignments(db, projectId);
+  return REQUIRED_PROJECT_ROLES.map(role => {
+    const matched = assignments.filter(item => assignmentRoleKey(item) === role.key);
+    return { ...role, assignments: matched, count: matched.length, covered: matched.length > 0 };
+  });
+}
+
+export function projectStaffingWarnings(db, project) {
+  if (!project) return [];
+  const coverage = projectRoleCoverage(db, project.id);
+  const missing = coverage.filter(item => !item.covered);
+  const warnings = [];
+  if (project.status === '资产制作中' && missing.some(item => item.key === 'asset')) {
+    warnings.push({ key: 'asset', critical: true, text: '当前处于资产制作中，请立即安排资产制作人员' });
+  }
+  if (project.status === '视频制作中' && missing.some(item => item.key === 'video')) {
+    warnings.push({ key: 'video', critical: true, text: '当前处于视频制作中，请立即安排视频制作人员' });
+  }
+  const otherMissing = missing.filter(item => !warnings.some(warning => warning.key === item.key));
+  if (otherMissing.length) warnings.push({ key: 'required', critical: false, text: `核心岗位待补齐：${otherMissing.map(item => item.label).join('、')}` });
+  return warnings;
 }
 
 export function projectHealth(project, today = new Date()) {
@@ -93,12 +146,13 @@ export function needAllocated(db, need) {
 }
 
 export function dashboardMetrics(db) {
-  const active = db.projects.filter(item => ['制作中', '待验收'].includes(item.status));
-  const risky = active.filter(item => ['risk', 'overdue'].includes(projectHealth(item).key));
+  const active = db.projects.filter(item => ['制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'].includes(item.status));
+  const risky = active.filter(item => ['risk', 'overdue'].includes(projectHealth(item).key) || projectStaffingWarnings(db, item).some(warning => warning.critical));
   const availablePeople = db.people.filter(item => item.employmentStatus !== '离岗' && personAvailable(db, item) > 0);
   const averageProgress = active.length ? Math.round(active.reduce((sum, item) => sum + clampPercent(item.overallProgress), 0) / active.length) : 0;
   const openNeeds = db.staffingNeeds.filter(item => item.status !== '已满足' && needAllocated(db, item) < Number(item.requiredCapacity || 0));
-  return { active: active.length, risky: risky.length, availablePeople: availablePeople.length, averageProgress, openNeeds: openNeeds.length };
+  const coreRoleGaps = db.projects.filter(item => !['已完成', '已取消'].includes(item.status)).reduce((total, project) => total + projectRoleCoverage(db, project.id).filter(role => !role.covered).length, 0);
+  return { active: active.length, risky: risky.length, availablePeople: availablePeople.length, averageProgress, openNeeds: openNeeds.length + coreRoleGaps };
 }
 
 export function splitNames(value) {
