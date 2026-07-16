@@ -39,6 +39,7 @@ const initials = name => String(name || '?').slice(-2);
 const progress = value => `<div class="progress-label"><span>进度</span><strong>${clampPercent(value)}%</strong></div><div class="progress"><i style="width:${clampPercent(value)}%"></i></div>`;
 const tag = (label, tone = '') => `<span class="tag ${tone}">${esc(label || '未设置')}</span>`;
 const statusTone = status => status === '已完成' ? 'blue' : status === '暂停' ? 'paused' : status === '反馈修改中' ? 'orange' : ['制作中','资产制作中','视频制作中'].includes(status) ? 'green' : '';
+const phaseProgress = (label,value,tone='mint') => `<div class="phase-progress"><div><span>${esc(label)}</span><strong>${clampPercent(value)}%</strong></div><div class="phase-track"><i class="${tone}" style="width:${clampPercent(value)}%"></i></div></div>`;
 
 function logActivity(type, text) {
   db.activity = db.activity || [];
@@ -97,11 +98,20 @@ function roleCoverageSummary(project) {
   return { coverage, covered, missing };
 }
 
+function compactRoleBoard(project, interactive = false) {
+  return projectRoleCoverage(db,project.id).map(role=>{
+    const names=role.assignments.map(assignment=>db.people.find(person=>person.id===assignment.personId)?.name).filter(Boolean);
+    const attributes=interactive?`data-assign-role="${esc(role.label)}" data-project-id="${project.id}"`:'';
+    return `<${interactive?'button':'div'} class="role-chip ${names.length?'filled':'missing'}" ${attributes}><span>${esc(role.label.replace('项目负责人/','').replace('人员',''))}</span><strong>${names.length?esc(names.join('、')):'＋ 待安排'}</strong></${interactive?'button':'div'}>`;
+  }).join('');
+}
+
 function renderDashboard() {
   const root = $('#view-dashboard');
   const metrics = dashboardMetrics(db);
-  const active = db.projects.filter(item => !['已完成','已取消'].includes(item.status)).sort((a,b) => (a.ddl || '9999').localeCompare(b.ddl || '9999')).slice(0, 7);
-  const people = db.people.filter(item => item.employmentStatus !== '离岗').sort((a,b) => personUsage(db,b.id)-personUsage(db,a.id)).slice(0,7);
+  const active = db.projects.filter(item => !['已完成','已取消'].includes(item.status)).sort((a,b) => (a.ddl || '9999').localeCompare(b.ddl || '9999')).slice(0, 6);
+  const people = db.people.filter(item => item.employmentStatus !== '离岗'&&personAvailable(db,item)>0).sort((a,b) => personAvailable(db,b)-personAvailable(db,a)).slice(0,6);
+  const gaps=db.projects.filter(project=>!['已完成','已取消'].includes(project.status)).flatMap(project=>projectRoleCoverage(db,project.id).filter(role=>!role.covered).map(role=>({project,role,critical:(project.status==='资产制作中'&&role.key==='asset')||(project.status==='视频制作中'&&role.key==='video')}))).sort((a,b)=>Number(b.critical)-Number(a.critical)).slice(0,5);
   root.innerHTML = `
     <div class="metrics">
       <div class="metric green"><div class="metric-label">进行中项目</div><div class="metric-value">${metrics.active}</div><div class="metric-note">覆盖资产、视频、反馈与验收阶段</div></div>
@@ -110,25 +120,17 @@ function renderDashboard() {
       <div class="metric red"><div class="metric-label">风险项目</div><div class="metric-value">${metrics.risky}</div><div class="metric-note">临期、逾期或有阻塞</div></div>
       <div class="metric violet"><div class="metric-label">可调度人员</div><div class="metric-value">${metrics.availablePeople}</div><div class="metric-note">剩余产能大于 0%</div></div>
     </div>
-    <div class="dashboard-grid">
-      <div class="card">
-        <div class="card-head"><div><h3>项目进展与交付</h3><p>按 DDL 从近到远排列</p></div><button class="link-btn" data-go="projects">查看全部 →</button></div>
-        <div class="card-body">${active.length ? active.map(project => {
-          const health = projectHealth(project); const team = peopleForProject(project.id); const roles = roleCoverageSummary(project); const warnings = projectStaffingWarnings(db,project);
-          return `<div class="project-line" data-open-project="${project.id}">
-            <div class="project-name"><strong>${esc(project.name)}</strong><span>${esc(project.shortName || project.scope || '暂无简称与规模')}</span></div>
-            <div>${progress(project.overallProgress)}</div>
-            <div><div class="mini-team">${team.slice(0,3).map(({person}) => `<i class="mini-avatar" title="${esc(person.name)}">${esc(initials(person.name))}</i>`).join('')}${team.length > 3 ? `<i class="mini-avatar">+${team.length-3}</i>` : ''}</div><span class="coverage-mini ${warnings.length?'missing':''}">${roles.covered}/5 岗位</span></div>
-            <div class="deadline"><strong>${esc(project.ddl || '未设 DDL')}</strong>${tag(health.label, health.key)}</div>
-          </div>`;
-        }).join('') : emptyBlock('▦','还没有项目','新建项目后，这里会展示进度、负责人和交付风险。','<button class="btn btn-primary" data-action="new-project">新建项目</button>')}</div>
+    <div class="dashboard-focus-grid">
+      <div class="card project-control-card">
+        <div class="card-head"><div><h3>项目进度控制</h3><p>总进度、资产和视频进度集中管理</p></div><button class="link-btn" data-go="projects">全部项目 →</button></div>
+        <div class="project-control-list">${active.length?active.map(project=>{
+          const health=projectHealth(project);const roles=roleCoverageSummary(project);
+          return `<div class="project-control-item"><div class="control-project-head"><div><strong>${esc(project.name)}</strong><span>${tag(project.status,statusTone(project.status))} ${tag(health.label,health.key)}</span></div><div class="control-deadline"><span>DDL</span><strong>${esc(project.ddl||'未设置')}</strong></div></div><div class="phase-progress-grid">${phaseProgress('总进度',project.overallProgress)}${phaseProgress('资产',project.assetProgress,'blue')}${phaseProgress('视频',project.videoProgress,'violet')}</div><div class="control-team-line"><div class="role-chip-row">${compactRoleBoard(project,false)}</div><button class="btn btn-outline btn-sm" data-open-project="${project.id}">团队与进度</button></div>${roles.missing.length?`<div class="control-warning">待补岗位：${esc(roles.missing.join('、'))}</div>`:''}</div>`;
+        }).join(''):emptyBlock('▦','还没有项目','新建项目后即可管理进度和团队。','<button class="btn btn-primary" data-action="new-project">新建项目</button>')}</div>
       </div>
-      <div class="card">
-        <div class="card-head"><div><h3>团队产能负载</h3><p>当前所有有效项目的占用合计</p></div><button class="link-btn" data-go="people">人员库 →</button></div>
-        <div class="card-body">${people.length ? people.map(person => {
-          const used = personUsage(db, person.id); const ratio = Math.min(100, used); const cls = used > 100 ? 'over' : used >= 85 ? 'hot' : '';
-          return `<div class="workload-item"><div class="workload-top"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.function || '未设置职能')}</span></div></div><span class="percent">${used}% / ${person.capacity || 100}%</span></div><div class="workload-bar"><i class="${cls}" style="width:${ratio}%"></i></div></div>`;
-        }).join('') : emptyBlock('◎','还没有人员','录入人员后，这里会自动汇总产能。')}</div>
+      <div class="dashboard-side-stack">
+        <div class="card staffing-card"><div class="card-head"><div><h3>优先人员安排</h3><p>先处理当前阶段冲突和核心岗位缺口</p></div><button class="link-btn" data-go="schedule">调度面板 →</button></div><div class="card-body gap-preview-list">${gaps.length?gaps.map(({project,role,critical})=>`<div class="gap-preview ${critical?'critical':''}"><div><strong>${esc(project.name)}</strong><span>${esc(project.status)} · ${esc(role.label)}</span></div><button class="btn ${critical?'btn-primary':'btn-outline'} btn-sm" data-assign-role="${esc(role.label)}" data-project-id="${project.id}">安排</button></div>`).join(''):emptyBlock('✓','核心岗位已齐','当前项目没有核心岗位缺口。')}</div></div>
+        <div class="card available-card"><div class="card-head"><div><h3>可立即调度</h3><p>按剩余产能从高到低</p></div><button class="link-btn" data-go="people">人员库 →</button></div><div class="card-body">${people.length?people.map(person=>{const used=personUsage(db,person.id),available=personAvailable(db,person);return `<div class="available-person"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.function||'未设置职能')} · 已占 ${used}%</span></div></div><strong class="available-value">可用 ${available}%</strong><button class="icon-btn" title="分配" data-assign-person="${person.id}">＋</button></div>`}).join(''):emptyBlock('◎','暂无可用人员','当前所有在岗人员产能已满。')}</div></div>
       </div>
     </div>`;
 }
@@ -146,13 +148,10 @@ function renderProjects() {
       <select class="filter-select" id="project-status-filter">${['全部',...PROJECT_STATUSES].map(value => `<option ${filters.projectStatus===value?'selected':''}>${value}</option>`).join('')}</select>
       <div class="toolbar-spacer"></div><button class="btn btn-outline" data-action="import-projects">批量导入</button><button class="btn btn-primary" data-action="new-project">＋ 新建项目</button>
     </div>
-    <div class="card table-card">${list.length ? `<table class="data-table"><thead><tr><th>项目</th><th>优先级</th><th>状态</th><th>总进度</th><th>项目团队</th><th>DDL</th><th>健康度</th><th></th></tr></thead><tbody>${list.map(project => {
-      const team = peopleForProject(project.id); const health = projectHealth(project); const roles = roleCoverageSummary(project); const warnings = projectStaffingWarnings(db,project);
-      return `<tr><td><div class="cell-title">${esc(project.name)}</div><div class="cell-sub">${esc([project.shortName,project.scope,project.clientCompany].filter(Boolean).join(' · ') || '暂无补充信息')}</div></td>
-        <td><span class="priority ${(project.priority || 'P2').slice(0,2).toLowerCase()}">${esc(project.priority || 'P2 中')}</span></td><td>${tag(project.status, statusTone(project.status))}</td>
-        <td style="min-width:130px">${progress(project.overallProgress)}</td><td><div class="project-team-cell"><div class="mini-team">${team.slice(0,4).map(({person})=>`<i class="mini-avatar" title="${esc(person.name)}">${esc(initials(person.name))}</i>`).join('')}${!team.length?'<span class="cell-sub">未安排</span>':''}</div><span class="coverage-mini ${warnings.length?'missing':''}">${roles.covered}/5 岗位${roles.missing.length?` · 缺 ${esc(roles.missing.join('、'))}`:''}</span></div></td>
-        <td>${esc(project.ddl || '—')}</td><td>${tag(health.label,health.key)}</td><td style="white-space:nowrap"><button class="icon-btn" title="详情" data-open-project="${project.id}">☰</button><button class="icon-btn" title="编辑" data-edit-project="${project.id}">✎</button></td></tr>`;
-    }).join('')}</tbody></table>` : emptyBlock('▦','没有匹配项目','调整筛选条件，或新建第一个项目。','<button class="btn btn-primary" data-action="new-project">新建项目</button>')}</div>`;
+    <div class="project-board-list">${list.length?list.map(project=>{
+      const health=projectHealth(project);const roles=roleCoverageSummary(project);const warnings=projectStaffingWarnings(db,project);
+      return `<div class="card project-board-row"><div class="project-identity"><div class="project-title-line"><strong>${esc(project.name)}</strong><span class="priority ${(project.priority||'P2').slice(0,2).toLowerCase()}">${esc(project.priority||'P2 中')}</span></div><span>${esc([project.shortName,project.scope].filter(Boolean).join(' · ')||'未设置简称与规模')}</span><div class="identity-tags">${tag(project.status,statusTone(project.status))}${tag(health.label,health.key)}</div><small>DDL ${esc(project.ddl||'未设置')}</small></div><div class="board-progress"><strong>制作进度</strong>${phaseProgress('总进度',project.overallProgress)}${phaseProgress('资产',project.assetProgress,'blue')}${phaseProgress('视频',project.videoProgress,'violet')}</div><div class="board-team"><div class="board-team-head"><strong>核心团队</strong><span class="${warnings.length?'warn-text':''}">${roles.covered}/5 岗位</span></div><div class="role-board">${compactRoleBoard(project,true)}</div></div><div class="board-actions"><button class="btn btn-primary btn-sm" data-open-project="${project.id}">管理团队</button><button class="btn btn-outline btn-sm" data-edit-project="${project.id}">编辑资料</button></div></div>`;
+    }).join(''):emptyBlock('▦','没有匹配项目','调整筛选条件，或新建第一个项目。','<button class="btn btn-primary" data-action="new-project">新建项目</button>')}</div>`;
 }
 
 function renderPeople() {
@@ -278,9 +277,10 @@ function showProject(id) {
   const warningHtml=warnings.length?`<div class="staff-alert ${warnings.some(item=>item.critical)?'critical':''}"><strong>人员安排提醒</strong>${warnings.map(item=>`<span>${esc(item.text)}</span>`).join('')}</div>`:'';
   const teamHtml=coverage.map(role=>{
     const members=role.assignments.map(assignment=>({assignment,person:db.people.find(item=>item.id===assignment.personId)})).filter(item=>item.person);
-    return `<div class="team-role-card ${role.covered?'':'missing'}"><div class="team-role-head"><div><strong>${esc(role.label)}</strong><span>${members.length?`${members.length} 人，可继续增加`:'至少安排 1 人'}</span></div><button class="btn btn-outline btn-sm" data-assign-role="${esc(role.label)}" data-project-id="${id}">＋ 安排</button></div><div class="team-member-list">${members.length?members.map(({assignment,person})=>`<div class="team-member"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.function)}</span></div></div><strong>${assignment.allocation}%</strong><button class="icon-btn" title="移除" data-delete-assignment="${assignment.id}">×</button></div>`).join(''):'<span class="role-empty">尚未安排</span>'}</div></div>`;
+    return `<div class="team-role-card ${role.covered?'':'missing'}"><div class="team-role-head"><div><strong>${esc(role.label)}</strong><span>${members.length?`${members.length} 人 · 支持多人`:'当前缺员'}</span></div><button class="btn btn-outline btn-sm" data-assign-role="${esc(role.label)}" data-project-id="${id}">＋ 安排</button></div><div class="team-member-list">${members.length?members.map(({assignment,person})=>{const occupied=assignmentConsumesCapacity(db,assignment,today());return `<div class="team-member"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.function)} · ${occupied?`占用 ${assignment.allocation}%`:'产能已释放'}</span></div></div><span class="member-state ${occupied?'':'released'}">${occupied?'在项目':'已释放'}</span><button class="icon-btn" title="移除" data-delete-assignment="${assignment.id}">×</button></div>`}).join(''):'<span class="role-empty">尚未安排，点击右上角添加</span>'}</div></div>`;
   }).join('');
-  openModal({title:project.name,subtitle:`${project.priority||'未设优先级'} · ${project.status||'未设状态'} · 总进度 ${clampPercent(project.overallProgress)}%`,body:`${warningHtml}<div class="detail-grid">${details.filter(([,v])=>v).map(([k,v])=>`<div class="detail-item ${String(v).length>80?'full':''}"><span>${k}</span><p>${esc(v)}</p></div>`).join('')}</div><div class="team-section-title"><div><strong>项目团队</strong><span>五个核心岗位均至少 1 人，支持多人协作</span></div>${tag(`${covered}/5 岗位已覆盖`,covered===5?'green':'orange')}</div><div class="team-role-grid">${teamHtml}</div>`,footer:`<button class="btn btn-outline" data-close-modal>关闭</button><button class="btn btn-soft" id="detail-assign">＋ 其它支持人员</button><button class="btn btn-primary" id="detail-edit">编辑项目</button>`,onOpen(){
+  const detailHtml=details.filter(([,value])=>value).map(([key,value])=>`<div class="detail-item ${String(value).length>80?'full':''}"><span>${key}</span><p>${esc(value)}</p></div>`).join('');
+  openModal({title:project.name,subtitle:`${project.priority||'未设优先级'} · ${project.status||'未设状态'} · DDL ${project.ddl||'未设置'}`,size:'wide',body:`${warningHtml}<div class="project-command"><div class="command-head"><div><span>当前阶段</span><strong>${esc(project.status||'未设置')}</strong></div><div><span>核心岗位</span><strong>${covered}/5</strong></div><div><span>内审状态</span><strong>${esc(project.internalReview||'未开始')}</strong></div><div><span>交付日期</span><strong>${esc(project.ddl||'未设置')}</strong></div></div><div class="command-progress">${phaseProgress('项目总进度',project.overallProgress)}${phaseProgress('资产制作',project.assetProgress,'blue')}${phaseProgress('视频制作',project.videoProgress,'violet')}</div></div><div class="team-section-title"><div><strong>项目团队与人员安排</strong><span>核心岗位优先展示；缺员岗位可直接安排可用人员</span></div>${tag(`${covered}/5 岗位已覆盖`,covered===5?'green':'orange')}</div><div class="team-role-grid">${teamHtml}</div><details class="project-info-collapse"><summary><div><strong>查看项目基础资料</strong><span>概述、客户、参考资料、地址等次要信息</span></div><b>展开</b></summary><div class="detail-grid">${detailHtml||'<div class="role-empty">暂无补充资料</div>'}</div></details>`,footer:`<button class="btn btn-outline" data-close-modal>关闭</button><button class="btn btn-soft" id="detail-assign">＋ 其它支持人员</button><button class="btn btn-primary" id="detail-edit">编辑项目资料</button>`,onOpen(){
     $('#detail-edit').onclick=()=>editProject(id);$('#detail-assign').onclick=()=>editAssignment({projectId:id});$$('[data-delete-assignment]').forEach(button=>button.onclick=async()=>{const assignment=db.assignments.find(item=>item.id===button.dataset.deleteAssignment);const person=db.people.find(item=>item.id===assignment?.personId);if(!await confirmDialog('移除项目人员',`确定将“${person?.name||'该人员'}”从此项目移除吗？`,true))return;db.assignments=db.assignments.filter(item=>item.id!==button.dataset.deleteAssignment);await persist('项目人员已移除');showProject(id);renderAll();});
   }});
 }
