@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目人员调度台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">调</div>
+        <div><strong>项目人员调度台</strong><span>OFFLINE WORKSPACE</span></div>
+      </div>
+      <nav id="nav">
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span>总览面板</button>
+        <button class="nav-item" data-view="projects"><span>▦</span>项目资料库</button>
+        <button class="nav-item" data-view="people"><span>◎</span>人员资料库</button>
+        <button class="nav-item" data-view="schedule"><span>↔</span>人员调度</button>
+        <button class="nav-item" data-view="import"><span>⇧</span>导入与模板</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="nav-item" data-view="settings"><span>⚙</span>数据与设置</button>
+        <div class="offline-pill"><i></i>本地离线运行</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p id="eyebrow">工作台</p>
+          <h1 id="page-title">总览面板</h1>
+        </div>
+        <div class="top-actions">
+          <label class="global-search"><span>⌕</span><input id="global-search" placeholder="搜索项目或人员…"></label>
+          <button class="btn btn-soft" id="quick-need">＋ 用人需求</button>
+          <button class="btn btn-primary" id="quick-project">＋ 新建项目</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard"></section>
+      <section class="view" id="view-projects"></section>
+      <section class="view" id="view-people"></section>
+      <section class="view" id="view-schedule"></section>
+      <section class="view" id="view-import"></section>
+      <section class="view" id="view-settings"></section>
+    </main>
+  </div>
+
+  <div id="toast-stack" class="toast-stack"></div>
+  <div id="modal-root"></div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
