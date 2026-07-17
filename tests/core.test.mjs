@@ -4,7 +4,7 @@ import {
   emptyDatabase, personUsage, personAvailable, projectHealth, needAllocated,
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
   assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
-  personRemainingCapacity, personWorkloadBreakdown, migrateDatabase, parseSkillProfiles, parseProductionCapabilities
+  personRemainingCapacity, personWorkloadBreakdown, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects
 } from '../src/core.mjs';
 
 function fixture() {
@@ -106,12 +106,29 @@ test('其它部门项目计入产能，超负荷保留负数剩余产能', () =>
   assert.equal(personWorkloadBreakdown(db,'u1','2026-07-16').length,2);
 });
 
-test('未来释放日期和非在岗状态不进入可调度名单', () => {
+test('预计释放日期仅作参考，可排状态由全部有效项目占用和在岗状态决定', () => {
   const db=fixture();
   db.people[0].releaseDate='2099-01-01';
+  assert.equal(personAvailable(db,db.people[0],'2026-07-16'),30);
+  db.people[0].releaseDate='';
+  db.people[0].externalAssignments=[{id:'e1',name:'持续管理',department:'商务部门',allocation:30,status:'进行中',endDate:''}];
   assert.equal(personAvailable(db,db.people[0],'2026-07-16'),0);
-  db.people[0].releaseDate='';db.people[0].employmentStatus='请假';
+  db.people[0].externalAssignments=[];db.people[0].employmentStatus='请假';
   assert.equal(personAvailable(db,db.people[0],'2026-07-16'),0);
+});
+
+test('项目默认按进行中、待启动、暂停、已完结分组，并按优先级和接单日期排序', () => {
+  const projects=[
+    {name:'已完成项目',status:'已完成',priority:'P0 紧急',orderDate:'2026-01-01'},
+    {name:'待启动项目',status:'待启动',priority:'P0 紧急',orderDate:'2026-01-01'},
+    {name:'进行中较新项目',status:'视频制作中',priority:'P1 高',orderDate:'2026-06-01'},
+    {name:'进行中较早项目',status:'制作中',priority:'P1 高',orderDate:'2026-05-01'},
+    {name:'进行中紧急项目',status:'反馈修改中',priority:'P0 紧急',orderDate:'2026-07-01'},
+    {name:'暂停项目',status:'暂停',priority:'P0 紧急',orderDate:'2026-01-01'}
+  ];
+  assert.deepEqual(projects.sort(compareProjects).map(item=>item.name),[
+    '进行中紧急项目','进行中较早项目','进行中较新项目','待启动项目','暂停项目','已完成项目'
+  ]);
 });
 
 test('旧版人员资料自动迁移为部门职位与技能等级模型', () => {

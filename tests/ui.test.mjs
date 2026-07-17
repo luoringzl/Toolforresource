@@ -25,6 +25,8 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
 
   document.querySelector('[data-view="projects"]').click();
   assert.ok(document.querySelector('.project-board-row'),'项目列表应使用进度与团队工作卡');
+  assert.equal(document.querySelector('.priority-badge').textContent,'P1','优先级应使用不换行角标');
+  assert.equal(document.querySelector('.project-title-line strong').getAttribute('title'),'视觉测试项目','完整项目名应保留在悬停提示中');
   document.querySelector('[data-open-project="p1"]').click();
   assert.ok(document.querySelector('.project-command'),'项目详情首屏应显示进度指挥区');
   assert.equal(document.querySelectorAll('.team-role-card').length,5,'项目详情应重点显示五个核心岗位');
@@ -37,6 +39,7 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   assert.ok(document.querySelector('.person-detail-summary'),'点击人员应显示产能概览');
   document.querySelector('#person-detail-edit').click();
   assert.ok(document.querySelector('.person-profile-form'),'人员编辑应使用完整能力档案表单');
+  assert.match(document.querySelector('[name="releaseDate"]').closest('.field').textContent,/仅作排期参考/);
   assert.ok(document.querySelector('.skill-selector'),'人员编辑应支持技能多选和等级');
   document.querySelector('.skill-check').click();
   assert.ok(document.querySelector('.capability-edit-row'),'选中技能后应显示对应制作能力输入');

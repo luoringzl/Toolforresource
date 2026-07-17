@@ -1,6 +1,6 @@
 {
   "name": "project-resource-console",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "离线项目资料库、人员资料库与产能调度桌面软件",
   "main": "electron/main.cjs",
   "author": "Project Resource Console",
