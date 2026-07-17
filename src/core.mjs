@@ -1,4 +1,6 @@
 export const PROJECT_STATUSES = ['待启动', '制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收', '暂停', '已完成', '已取消'];
+export const ACTIVE_PROJECT_STATUSES = ['制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'];
+export const COMPLETED_PROJECT_STATUSES = ['已完成', '已完结', '已取消'];
 
 export const REQUIRED_PROJECT_ROLES = [
   { key: 'director', label: '项目负责人/导演', function: '导演', stage: '统筹' },
@@ -43,7 +45,7 @@ export const projectFields = [
 export const peopleFields = [
   ['name', '人员姓名', 'text', true], ['department', '归属部门', 'select', true, DEPARTMENTS],
   ['position', '职位', 'select', true, POSITIONS], ['capacity', '标准总产能（%）', 'number'],
-  ['releaseDate', '产能释放日期', 'date'], ['employmentStatus', '在岗状态', 'select', false, EMPLOYMENT_STATUSES],
+  ['releaseDate', '预计产能释放日期（选填）', 'date'], ['employmentStatus', '在岗状态', 'select', false, EMPLOYMENT_STATUSES],
   ['capability', '综合能力说明', 'textarea'], ['contact', '联系方式', 'text'], ['notes', '备注', 'textarea']
 ];
 
@@ -54,7 +56,7 @@ export const projectHeaders = [
 ];
 
 export const peopleHeaders = [
-  '人员姓名','归属部门','职位','技能与等级','制作能力','AI项目及产能占用','其它部门项目及产能占用','标准总产能','产能释放日期','在岗状态','综合能力说明','联系方式','备注'
+  '人员姓名','归属部门','职位','技能与等级','制作能力','AI项目及产能占用','其它部门项目及产能占用','标准总产能','预计产能释放日期','在岗状态','综合能力说明','联系方式','备注'
 ];
 
 export function uid(prefix = 'id') {
@@ -181,7 +183,8 @@ export function personRemainingCapacity(db, person, today = new Date().toISOStri
 }
 
 export function isPersonSchedulable(person, today = new Date().toISOString().slice(0, 10)) {
-  return Boolean(person) && person.employmentStatus === '在岗' && (!person.releaseDate || person.releaseDate <= today);
+  // 预计释放日期仅用于排期参考。是否可排始终以在岗状态和所有有效项目的剩余产能为准。
+  return Boolean(person) && person.employmentStatus === '在岗';
 }
 
 export function personAvailable(db, person, today = new Date().toISOString().slice(0, 10)) {
@@ -251,6 +254,31 @@ export function projectHealth(project, today = new Date()) {
   return { key: 'normal', label: '正常' };
 }
 
+function projectStatusSortGroup(status = '') {
+  if (ACTIVE_PROJECT_STATUSES.includes(status)) return 0;
+  if (status === '待启动') return 1;
+  if (status === '暂停') return 2;
+  if (COMPLETED_PROJECT_STATUSES.includes(status)) return 3;
+  return 0;
+}
+
+function projectPriorityRank(priority = '') {
+  const match = String(priority).toUpperCase().match(/P([0-3])/);
+  return match ? Number(match[1]) : 4;
+}
+
+export function compareProjects(a = {}, b = {}) {
+  const groupDifference = projectStatusSortGroup(a.status) - projectStatusSortGroup(b.status);
+  if (groupDifference) return groupDifference;
+  const priorityDifference = projectPriorityRank(a.priority) - projectPriorityRank(b.priority);
+  if (priorityDifference) return priorityDifference;
+  const orderDateDifference = String(a.orderDate || '9999-12-31').localeCompare(String(b.orderDate || '9999-12-31'));
+  if (orderDateDifference) return orderDateDifference;
+  const ddlDifference = String(a.ddl || '9999-12-31').localeCompare(String(b.ddl || '9999-12-31'));
+  if (ddlDifference) return ddlDifference;
+  return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+}
+
 export function needAllocated(db, need) {
   return db.assignments
     .filter(item => item.projectId === need.projectId && item.status !== '已结束')
@@ -259,7 +287,7 @@ export function needAllocated(db, need) {
 }
 
 export function dashboardMetrics(db) {
-  const active = db.projects.filter(item => ['制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'].includes(item.status));
+  const active = db.projects.filter(item => ACTIVE_PROJECT_STATUSES.includes(item.status));
   const risky = active.filter(item => ['risk', 'overdue'].includes(projectHealth(item).key) || projectStaffingWarnings(db, item).some(warning => warning.critical));
   const availablePeople = db.people.filter(item => item.employmentStatus !== '离岗' && personAvailable(db, item) > 0);
   const averageProgress = active.length ? Math.round(active.reduce((sum, item) => sum + clampPercent(item.overallProgress), 0) / active.length) : 0;
@@ -298,7 +326,7 @@ export function normalizePersonRow(row) {
   return migratePerson({
     name: row['人员姓名'] || row['姓名'], department: row['归属部门'] || row['所属部门/团队'] || '未分配', position,
     function: positionToLegacyFunction(position), capability: row['综合能力说明'] || row['个人能力信息说明'] || '',
-    capacity: Number(row['标准总产能'] || row['标准产能'] || 100), releaseDate: row['产能释放日期'] || '',
+    capacity: Number(row['标准总产能'] || row['标准产能'] || 100), releaseDate: row['预计产能释放日期'] || row['产能释放日期'] || '',
     employmentStatus: row['在岗状态'] || '在岗', skillProfiles, productionCapabilities:parseProductionCapabilities(row['制作能力']),
     externalAssignments:parseExternalAssignments(row['其它部门项目及产能占用']), contact:row['联系方式'] || '', notes:row['备注'] || '', aiProjectAllocations
   });
