@@ -1,5 +1,7 @@
 import {
-  PROJECT_STATUSES, REQUIRED_PROJECT_ROLES, projectFields, peopleFields, emptyDatabase, uid, clampPercent, personUsage, personAvailable,
+  PROJECT_STATUSES, REQUIRED_PROJECT_ROLES, DEPARTMENTS, POSITIONS, SKILL_OPTIONS, SKILL_LEVELS, EMPLOYMENT_STATUSES, CAPABILITY_UNIT_SUGGESTIONS,
+  projectFields, emptyDatabase, uid, clampPercent, personUsage, personAvailable, personRemainingCapacity, personWorkloadBreakdown, personMatchesRole,
+  migrateDatabase, migratePerson, positionToLegacyFunction,
   assignmentConsumesCapacity, projectAssignments, projectRoleCoverage, projectStaffingWarnings,
   projectHealth, needAllocated, dashboardMetrics, splitNames, normalizeProjectRow, normalizePersonRow, roleColumns
 } from './core.mjs';
@@ -24,7 +26,7 @@ const localAPI = {
 const api = window.desktopAPI || localAPI;
 let db = emptyDatabase();
 let currentView = 'dashboard';
-const filters = { projects: '', projectStatus: '全部', people: '', peopleFunction: '全部' };
+const filters = { projects: '', projectStatus: '全部', people: '', peopleDepartment: '全部', peoplePosition: '全部' };
 
 const titles = {
   dashboard: ['工作台', '总览面板'], projects: ['资料库', '项目资料库'], people: ['资料库', '人员资料库'],
@@ -130,7 +132,7 @@ function renderDashboard() {
       </div>
       <div class="dashboard-side-stack">
         <div class="card staffing-card"><div class="card-head"><div><h3>优先人员安排</h3><p>先处理当前阶段冲突和核心岗位缺口</p></div><button class="link-btn" data-go="schedule">调度面板 →</button></div><div class="card-body gap-preview-list">${gaps.length?gaps.map(({project,role,critical})=>`<div class="gap-preview ${critical?'critical':''}"><div><strong>${esc(project.name)}</strong><span>${esc(project.status)} · ${esc(role.label)}</span></div><button class="btn ${critical?'btn-primary':'btn-outline'} btn-sm" data-assign-role="${esc(role.label)}" data-project-id="${project.id}">安排</button></div>`).join(''):emptyBlock('✓','核心岗位已齐','当前项目没有核心岗位缺口。')}</div></div>
-        <div class="card available-card"><div class="card-head"><div><h3>可立即调度</h3><p>按剩余产能从高到低</p></div><button class="link-btn" data-go="people">人员库 →</button></div><div class="card-body">${people.length?people.map(person=>{const used=personUsage(db,person.id),available=personAvailable(db,person);return `<div class="available-person"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.function||'未设置职能')} · 已占 ${used}%</span></div></div><strong class="available-value">可用 ${available}%</strong><button class="icon-btn" title="分配" data-assign-person="${person.id}">＋</button></div>`}).join(''):emptyBlock('◎','暂无可用人员','当前所有在岗人员产能已满。')}</div></div>
+        <div class="card available-card"><div class="card-head"><div><h3>可立即调度</h3><p>按剩余产能从高到低</p></div><button class="link-btn" data-go="people">人员库 →</button></div><div class="card-body">${people.length?people.map(person=>{const used=personUsage(db,person.id),available=personAvailable(db,person);return `<div class="available-person"><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.position||person.function||'未设置职位')} · 已占 ${used}%</span></div></div><strong class="available-value">可用 ${available}%</strong><button class="icon-btn" title="分配" data-assign-person="${person.id}">＋</button></div>`}).join(''):emptyBlock('◎','暂无可用人员','当前所有在岗人员产能已满或尚未释放。')}</div></div>
       </div>
     </div>`;
 }
@@ -156,31 +158,37 @@ function renderProjects() {
 
 function renderPeople() {
   const root = $('#view-people');
-  const functions = ['全部', ...new Set(db.people.map(item => item.function).filter(Boolean))];
   const list = db.people.filter(item => {
     const keyword = filters.people.toLowerCase();
-    return (!keyword || [item.name,item.department,item.function,item.skills,item.capability].some(value => String(value || '').toLowerCase().includes(keyword))) && (filters.peopleFunction === '全部' || item.function === filters.peopleFunction);
+    const skills=(item.skillProfiles||[]).map(skill=>`${skill.skill}${skill.level}`).join(' ');
+    return (!keyword || [item.name,item.department,item.position,item.skills,skills,item.capability].some(value => String(value || '').toLowerCase().includes(keyword)))
+      && (filters.peopleDepartment === '全部' || item.department === filters.peopleDepartment)
+      && (filters.peoplePosition === '全部' || item.position === filters.peoplePosition);
   });
+  const overloaded=db.people.filter(person=>personRemainingCapacity(db,person)<0).length;
+  const available=db.people.filter(person=>personAvailable(db,person)>0).length;
+  const onLeave=db.people.filter(person=>person.employmentStatus!=='在岗').length;
   root.innerHTML = `
-    <div class="section-heading"><div><h2>全部人员</h2><p>共 ${db.people.length} 人；剩余产能根据当前有效分工自动计算</p></div></div>
-    <div class="toolbar"><input class="searchbox" id="people-search" value="${esc(filters.people)}" placeholder="搜索姓名、职能或技能…"><select class="filter-select" id="people-function-filter">${functions.map(value=>`<option ${filters.peopleFunction===value?'selected':''}>${esc(value)}</option>`).join('')}</select><div class="toolbar-spacer"></div><button class="btn btn-outline" data-action="import-people">批量导入</button><button class="btn btn-primary" data-action="new-person">＋ 新增人员</button></div>
-    <div class="card table-card">${list.length ? `<table class="data-table"><thead><tr><th>人员</th><th>职能 / 能力</th><th>参与项目</th><th>产能占用</th><th>剩余产能</th><th>释放日期</th><th>在岗状态</th><th></th></tr></thead><tbody>${list.map(person => {
-      const used = personUsage(db, person.id); const available = personAvailable(db,person); const assignments = db.assignments.filter(item=>item.personId===person.id&&assignmentConsumesCapacity(db,item,today()));
-      const projects = assignments.map(item=>db.projects.find(project=>project.id===item.projectId)?.shortName || db.projects.find(project=>project.id===item.projectId)?.name).filter(Boolean);
-      return `<tr><td><div class="avatar-name"><i class="avatar">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.department || '未设置团队')}</span></div></div></td><td><div class="cell-title">${esc(person.function || '其它')} · ${esc(person.skillLevel || '未评级')}</div><div class="cell-sub">${esc(person.skills || person.capability || '暂无能力说明')}</div></td><td><div class="cell-sub" title="${esc(projects.join('、'))}">${esc(projects.join('、') || '暂无项目')}</div></td><td style="min-width:130px">${progress(Math.min(100,used))}<div class="cell-sub">${used}% / ${person.capacity || 100}%</div></td><td>${tag(`${available}%`,available===0?'red':available<=20?'orange':'green')}</td><td>${esc(person.releaseDate || '—')}</td><td>${tag(person.employmentStatus || '在岗',person.employmentStatus==='在岗'?'green':'')}</td><td><button class="icon-btn" title="编辑" data-edit-person="${person.id}">✎</button></td></tr>`;
-    }).join('')}</tbody></table>` : emptyBlock('◎','没有匹配人员','调整筛选条件，或录入第一位人员。','<button class="btn btn-primary" data-action="new-person">新增人员</button>')}</div>`;
+    <div class="section-heading"><div><h2>人员能力与产能</h2><p>技能、制作能力和逐项目产能占用集中维护</p></div></div>
+    <div class="people-metrics"><div><span>人员总数</span><strong>${db.people.length}</strong></div><div><span>可调度</span><strong class="positive">${available}</strong></div><div><span>超负荷</span><strong class="negative">${overloaded}</strong></div><div><span>非在岗</span><strong>${onLeave}</strong></div></div>
+    <div class="toolbar"><input class="searchbox" id="people-search" value="${esc(filters.people)}" placeholder="搜索姓名、职位或技能…"><select class="filter-select" id="people-department-filter">${['全部',...DEPARTMENTS].map(value=>`<option ${filters.peopleDepartment===value?'selected':''}>${esc(value)}</option>`).join('')}</select><select class="filter-select" id="people-position-filter">${['全部',...POSITIONS].map(value=>`<option ${filters.peoplePosition===value?'selected':''}>${esc(value)}</option>`).join('')}</select><div class="toolbar-spacer"></div><button class="btn btn-outline" data-action="import-people">批量导入</button><button class="btn btn-primary" data-action="new-person">＋ 新增人员</button></div>
+    <div class="people-card-grid">${list.length?list.map(person=>{
+      const used=personUsage(db,person.id),remaining=personRemainingCapacity(db,person);const workloads=personWorkloadBreakdown(db,person.id).filter(item=>item.active);
+      const skills=(person.skillProfiles||[]).slice(0,5);const capabilities=(person.productionCapabilities||[]).slice(0,2);
+      return `<article class="card person-card ${remaining<0?'overloaded':''}" data-open-person="${person.id}"><div class="person-card-head"><div class="avatar-name"><i class="avatar large">${esc(initials(person.name))}</i><div><strong>${esc(person.name)}</strong><span>${esc(person.department)} · ${esc(person.position||person.function||'未设置职位')}</span></div></div>${tag(person.employmentStatus||'在岗',person.employmentStatus==='在岗'?'green':'')}</div><div class="skill-chip-list">${skills.length?skills.map(item=>`<span>${esc(item.skill)}<b>${esc(item.level)}</b></span>`).join(''):'<em>暂无技能标签</em>'}</div><div class="capacity-band"><div><span>已占用</span><strong>${used}%</strong></div><div><span>剩余产能</span><strong class="${remaining<0?'negative':remaining<=20?'warning':'positive'}">${remaining}%</strong></div><div><span>释放日期</span><strong>${esc(person.releaseDate||'当前可排')}</strong></div></div><div class="person-load-list">${workloads.length?workloads.slice(0,3).map(item=>`<div><span>${esc(item.name)}</span><b>${Number(item.allocation||0)}%</b></div>`).join(''):'<span class="muted-copy">当前无有效项目占用</span>'}</div><div class="capability-brief">${capabilities.length?capabilities.map(item=>`${esc(item.skill)} ${esc(item.quantity)}${esc(item.unit)}`).join(' · '):esc(person.capability||'暂无制作能力说明')}</div><div class="person-card-actions"><span>${workloads.length} 个进行中项目</span><button class="btn btn-outline btn-sm" data-edit-person="${person.id}">编辑档案</button></div></article>`;
+    }).join(''):emptyBlock('◎','没有匹配人员','调整筛选条件，或录入第一位人员。','<button class="btn btn-primary" data-action="new-person">新增人员</button>')}</div>`;
 }
 
 function availableCandidates(need) {
-  return db.people.filter(person => person.employmentStatus !== '离岗' && personAvailable(db,person) > 0)
-    .map(person => ({ person, available: personAvailable(db,person), match: person.function === need?.role || String(person.skills || '').includes(need?.role || '') }))
+  return db.people.filter(person => personAvailable(db,person) > 0)
+    .map(person => ({ person, available: personAvailable(db,person), match: personMatchesRole(person,need?.role) }))
     .sort((a,b) => Number(b.match)-Number(a.match) || b.available-a.available);
 }
 
 function renderSchedule() {
   const root = $('#view-schedule');
   const needs = db.staffingNeeds.filter(need => need.status !== '已满足' || needAllocated(db,need) < Number(need.requiredCapacity || 0));
-  const candidates = db.people.filter(person=>person.employmentStatus!=='离岗'&&personAvailable(db,person)>0).sort((a,b)=>personAvailable(db,b)-personAvailable(db,a));
+  const candidates = db.people.filter(person=>personAvailable(db,person)>0).sort((a,b)=>personAvailable(db,b)-personAvailable(db,a));
   const projectGaps=db.projects.filter(project=>!['已完成','已取消'].includes(project.status)).flatMap(project=>projectRoleCoverage(db,project.id).filter(role=>!role.covered).map(role=>({project,role,critical:(project.status==='资产制作中'&&role.key==='asset')||(project.status==='视频制作中'&&role.key==='video')}))).sort((a,b)=>Number(b.critical)-Number(a.critical));
   root.innerHTML = `
     <div class="section-heading"><div><h2>项目缺口与可用产能</h2><p>从剩余产能人员中选择并添加到项目，分配后双方资料自动更新</p></div><button class="btn btn-primary" data-action="new-need">＋ 新建用人需求</button></div>
@@ -190,7 +198,7 @@ function renderSchedule() {
         const project = db.projects.find(item=>item.id===need.projectId); const allocated = needAllocated(db,need); const gap = Math.max(0, Number(need.requiredCapacity||0)-allocated);
         return `<div class="need-card"><div class="need-top"><div><h4>${esc(project?.name || '项目已删除')} · ${esc(need.role)}</h4><p>${esc(need.note || '暂无补充说明')}</p></div>${tag(gap ? '待安排' : '已满足',gap?'orange':'green')}</div><div class="need-meta"><div class="mini-stat"><span>环节</span><strong>${esc(need.stage || '未设置')}</strong></div><div class="mini-stat"><span>仍需产能</span><strong>${gap}%</strong></div><div class="mini-stat"><span>期望到岗</span><strong>${esc(need.neededBy || '尽快')}</strong></div></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-outline btn-sm" data-edit-need="${need.id}">编辑</button><button class="btn btn-primary btn-sm" data-assign-need="${need.id}">选择人员</button></div></div>`;
       }).join('') : emptyBlock('✓','暂无人员缺口','所有用人需求均已满足。','<button class="btn btn-soft" data-action="new-need">新建需求</button>')}</div></div></div>
-      <div class="card"><div class="card-head"><div><h3>可调度人员</h3><p>按剩余产能从高到低排列</p></div></div><div class="card-body">${candidates.length ? candidates.slice(0,12).map(person => `<div class="candidate"><i class="avatar">${esc(initials(person.name))}</i><div class="candidate-info"><strong>${esc(person.name)} · ${esc(person.function)}</strong><span>${esc(person.skills || person.skillLevel || '暂无技能标签')}</span></div>${tag(`可用 ${personAvailable(db,person)}%`,'green')}<button class="btn btn-outline btn-sm" data-assign-person="${person.id}">分配</button></div>`).join('') : emptyBlock('◎','暂无可用人员','所有在岗人员产能已满，或人员库为空。')}</div></div>
+      <div class="card"><div class="card-head"><div><h3>可调度人员</h3><p>按剩余产能从高到低排列</p></div></div><div class="card-body">${candidates.length ? candidates.slice(0,12).map(person => `<div class="candidate"><i class="avatar">${esc(initials(person.name))}</i><div class="candidate-info"><strong>${esc(person.name)} · ${esc(person.position||person.function)}</strong><span>${esc((person.skillProfiles||[]).map(item=>`${item.skill} ${item.level}`).join('、') || '暂无技能标签')}</span></div>${tag(`可用 ${personAvailable(db,person)}%`,'green')}<button class="btn btn-outline btn-sm" data-assign-person="${person.id}">分配</button></div>`).join('') : emptyBlock('◎','暂无可用人员','人员产能已满、尚未释放或人员库为空。')}</div></div>
     </div>`;
 }
 
@@ -199,9 +207,9 @@ function renderImport() {
     <div class="section-heading"><div><h2>批量导入基础数据</h2><p>支持 .xlsx、.xls、.csv；模板包含字段说明和示例</p></div></div>
     <div class="import-grid">
       <div class="card import-card"><div class="import-icon">▦</div><h3>项目资料</h3><p>导入项目基本信息、进度、客户、资料路径和各环节人员。重名项目将更新已有资料。</p><div class="import-actions"><button class="btn btn-primary" data-action="import-projects">选择文件导入</button><button class="btn btn-outline" data-template="projects">下载模板</button></div></div>
-      <div class="card import-card"><div class="import-icon">◎</div><h3>人员资料</h3><p>导入人员能力、职能、产能、参与项目和在岗状态。重名人员将更新已有资料。</p><div class="import-actions"><button class="btn btn-primary" data-action="import-people">选择文件导入</button><button class="btn btn-outline" data-template="people">下载模板</button></div></div>
+      <div class="card import-card"><div class="import-icon">◎</div><h3>人员资料</h3><p>导入部门职位、技能等级、制作能力、AI/其它部门项目及逐项目产能占用。重名人员将更新已有资料。</p><div class="import-actions"><button class="btn btn-primary" data-action="import-people">选择文件导入</button><button class="btn btn-outline" data-template="people">下载模板</button></div></div>
     </div>
-    <div class="card tips"><h3>推荐导入顺序</h3><ol><li>先下载并填写“人员资料导入模板”，导入完整人员名册。</li><li>再填写“项目资料导入模板”。人员列按姓名填写，多人使用顿号“、”分隔。</li><li>若项目表中出现人员库没有的姓名，系统会自动建立“待补充资料”的人员记录，确保关联不丢失。</li><li>导入前建议在“数据与设置”中导出备份；任何时候都可以离线恢复。</li></ol></div>`;
+    <div class="card tips"><h3>推荐导入顺序</h3><ol><li>先导入项目资料，便于人员表中的“AI项目及产能占用”按项目名称自动关联。</li><li>再下载并填写新版人员模板；技能和多个项目均用中文分号分隔，格式示例见“填写说明”工作表。</li><li>其它部门项目只记录在人档中，不会生成完整项目资料；每个项目可单独填写占用百分比。</li><li>若项目表中出现人员库没有的姓名，系统会自动建立待补充人员档案；导入前建议先导出备份。</li></ol></div>`;
 }
 
 function renderSettings() {
@@ -226,11 +234,6 @@ function inputField(field, value = '') {
 function projectForm(project = {}) {
   const sectionBefore = { name:'基本信息', overview:'内容与验收资料', overallProgress:'进度与交付', svn:'地址与其它信息' };
   return projectFields.map(field => `${sectionBefore[field[0]]?`<div class="form-section">${sectionBefore[field[0]]}</div>`:''}${inputField(field, project[field[0]])}`).join('');
-}
-
-function personForm(person = {}) {
-  const sectionBefore = { name:'人员信息', capability:'能力与产能', contact:'联系与备注' };
-  return peopleFields.map(field => `${sectionBefore[field[0]]?`<div class="form-section">${sectionBefore[field[0]]}</div>`:''}${inputField(field, person[field[0]] ?? (field[0]==='capacity'?100:''))}`).join('');
 }
 
 function openModal({ title, subtitle = '', body, size = '', footer = '', onOpen }) {
@@ -262,10 +265,42 @@ function editProject(id = '') {
   }});
 }
 
+function workloadRow(item={}) {
+  const source=item.source==='其它部门'?'external':'ai';
+  const projectId=item.projectId||'';
+  return `<div class="workload-edit-row" data-assignment-id="${esc(item.id||'')}" data-need-id="${esc(item.needId||'')}" data-start-date="${esc(item.startDate||'')}"><select class="work-source"><option value="ai" ${source==='ai'?'selected':''}>AI 项目库</option><option value="external" ${source==='external'?'selected':''}>其它部门项目</option></select><div class="work-project ai-work-field"><select class="work-project-id"><option value="">选择项目</option>${db.projects.map(project=>`<option value="${project.id}" ${project.id===projectId?'selected':''}>${esc(project.name)}</option>`).join('')}</select></div><div class="work-project external-work-field"><input class="work-name" placeholder="项目名称" value="${esc(source==='external'?item.name:'')}"><input class="work-department" placeholder="归属部门" value="${esc(item.department||'')}"></div><input class="work-role" placeholder="项目角色" value="${esc(item.role||'')}"><div class="allocation-input"><input class="work-allocation" type="number" min="0" max="500" value="${Number(item.allocation||0)}"><span>%</span></div><input class="work-end-date" type="date" value="${esc(item.endDate||'')}"><select class="work-status"><option ${item.status==='待开始'?'selected':''}>待开始</option><option ${!item.status||item.status==='进行中'?'selected':''}>进行中</option><option ${item.status==='已结束'?'selected':''}>已结束</option><option ${item.status==='已取消'?'selected':''}>已取消</option></select><button type="button" class="icon-btn work-remove" title="移除">×</button></div>`;
+}
+
+function workloadEditorRowActive(row) {
+  const status=$('.work-status',row).value,endDate=$('.work-end-date',row).value;
+  if($('.work-source',row).value==='external')return !['已结束','已取消'].includes(status)&&(!endDate||endDate>=today());
+  const role=$('.work-role',row).value;
+  return assignmentConsumesCapacity(db,{projectId:$('.work-project-id',row).value,role,stage:role.includes('资产')?'资产':role.includes('视频')?'视频':'其它',status,endDate},today());
+}
+
+function showPerson(id) {
+  const person=db.people.find(item=>item.id===id);if(!person)return;
+  const used=personUsage(db,id),remaining=personRemainingCapacity(db,person);const workloads=personWorkloadBreakdown(db,id);
+  const skillHtml=(person.skillProfiles||[]).map(item=>{const capability=(person.productionCapabilities||[]).find(cap=>cap.skill===item.skill);return `<div class="person-skill-detail"><div><strong>${esc(item.skill)}</strong>${tag(item.level,'blue')}</div><span>${capability?`${esc(capability.quantity)} ${esc(capability.unit)}${capability.complexity?` · ${esc(capability.complexity)}`:''}`:'未填写制作能力'}</span></div>`}).join('');
+  openModal({title:person.name,subtitle:`${person.department} · ${person.position||person.function}`,size:'wide',body:`<div class="person-detail-summary"><div><span>标准产能</span><strong>${person.capacity||100}%</strong></div><div><span>当前占用</span><strong>${used}%</strong></div><div><span>剩余产能</span><strong class="${remaining<0?'negative':'positive'}">${remaining}%</strong></div><div><span>产能释放日期</span><strong>${esc(person.releaseDate||'当前可安排')}</strong></div><div><span>在岗状态</span><strong>${esc(person.employmentStatus||'在岗')}</strong></div></div><div class="person-detail-grid"><section><div class="detail-section-head"><strong>技能等级与制作能力</strong><span>${(person.skillProfiles||[]).length} 项技能</span></div><div class="person-skill-detail-list">${skillHtml||'<span class="muted-copy">尚未填写技能</span>'}</div><div class="ability-note"><span>综合能力说明</span><p>${esc(person.capability||'暂无说明')}</p></div></section><section><div class="detail-section-head"><strong>项目与产能占用</strong><span>有效占用合计 ${used}%</span></div><div class="person-work-detail-list">${workloads.length?workloads.map(item=>`<div class="person-work-detail ${item.active?'':'released'}"><div><strong>${esc(item.name)}</strong><span>${esc(item.source)} · ${esc(item.role||'未设置角色')}${item.endDate?` · 至 ${esc(item.endDate)}`:''}</span></div><b>${item.active?`${Number(item.allocation||0)}%`:'已释放'}</b></div>`).join(''):'<span class="muted-copy">暂无参与项目</span>'}</div></section></div>`,footer:`<button class="btn btn-outline" data-close-modal>关闭</button><button class="btn btn-primary" id="person-detail-edit">编辑人员档案</button>`,onOpen(){$('#person-detail-edit').onclick=()=>editPerson(id);}});
+}
+
 function editPerson(id = '') {
-  const existing=db.people.find(item=>item.id===id)||{};
-  openModal({title:id?'编辑人员':'新增人员',body:`<form id="person-form" class="form-grid">${personForm(existing)}</form>`,footer:`${id?'<button class="btn btn-danger" id="delete-person">删除人员</button>':''}<button class="btn btn-outline" data-close-modal>取消</button><button class="btn btn-primary" id="save-person">保存人员</button>`,onOpen(){
-    $('#save-person').onclick=async()=>{const form=$('#person-form');if(!form.reportValidity())return;const values=formDataObject(form,peopleFields);if(!id&&db.people.some(item=>item.name===values.name)){toast('人员姓名已存在；如为同名人员，请在姓名后添加团队标识',true);return;}if(id)Object.assign(existing,values);else db.people.unshift({id:uid('person'),...values});logActivity(id?'更新人员':'新增人员',values.name);await persist('人员资料已保存');closeModal();renderAll();};
+  const existing=migratePerson(db.people.find(item=>item.id===id)||{capacity:100,department:'AI项目组',position:'AI动画师',employmentStatus:'在岗'});
+  const existingSkills=new Map((existing.skillProfiles||[]).map(item=>[item.skill,item.level]));
+  const allSkills=[...new Set([...SKILL_OPTIONS,...existingSkills.keys()])];
+  const aiWorkloads=id?db.assignments.filter(item=>item.personId===id).map(item=>({...item,source:'AI项目库'})):[];
+  const workRows=[...aiWorkloads,...(existing.externalAssignments||[]).map(item=>({...item,source:'其它部门'}))];
+  openModal({title:id?'编辑人员档案':'新增人员档案',subtitle:'技能、制作能力和项目占用将共同用于调度判断',size:'wide',body:`<form id="person-form" class="person-profile-form"><section class="profile-form-section"><div class="detail-section-head"><strong>基本资料</strong><span>部门与职位用于筛选和岗位匹配</span></div><div class="form-grid"><div class="field"><label>人员姓名<em>*</em></label><input name="name" required value="${esc(existing.name||'')}"></div><div class="field"><label>归属部门<em>*</em></label><select name="department" required>${DEPARTMENTS.map(value=>`<option ${existing.department===value?'selected':''}>${esc(value)}</option>`).join('')}</select></div><div class="field"><label>职位<em>*</em></label><select name="position" required>${POSITIONS.map(value=>`<option ${existing.position===value?'selected':''}>${esc(value)}</option>`).join('')}</select></div><div class="field"><label>在岗状态</label><select name="employmentStatus">${EMPLOYMENT_STATUSES.map(value=>`<option ${existing.employmentStatus===value?'selected':''}>${esc(value)}</option>`).join('')}</select></div><div class="field"><label>标准总产能（%）</label><input name="capacity" type="number" min="1" max="500" value="${Number(existing.capacity||100)}"></div><div class="field"><label>产能释放日期</label><input name="releaseDate" type="date" value="${esc(existing.releaseDate||'')}"><span class="hint">日期未到前，不进入可调度名单</span></div><div class="field"><label>联系方式</label><input name="contact" value="${esc(existing.contact||'')}"></div><div class="field full"><label>综合能力说明</label><textarea name="capability">${esc(existing.capability||'')}</textarea></div><div class="field full"><label>备注</label><textarea name="notes">${esc(existing.notes||'')}</textarea></div></div></section><section class="profile-form-section"><div class="detail-section-head"><strong>技能标签与等级</strong><span>支持多选，每项技能可单独评级</span></div><div class="skill-selector">${allSkills.map(skill=>`<label class="skill-option"><input type="checkbox" class="skill-check" value="${esc(skill)}" ${existingSkills.has(skill)?'checked':''}><span>${esc(skill)}</span><select class="skill-level" ${existingSkills.has(skill)?'':'disabled'}>${SKILL_LEVELS.map(level=>`<option ${existingSkills.get(skill)===level?'selected':''}>${level}</option>`).join('')}</select></label>`).join('')}</div><div class="custom-skill-adder"><input id="custom-skill-name" placeholder="补充其它技能标签"><button type="button" class="btn btn-outline btn-sm" id="add-custom-skill">添加技能</button></div></section><section class="profile-form-section"><div class="detail-section-head"><strong>制作能力</strong><span>与已选技能对应，可填写数量、单位和项目等级</span></div><div class="capability-editor" id="capability-editor"></div></section><section class="profile-form-section"><div class="detail-section-head"><strong>参与项目与产能占用</strong><span>每个项目单独填写；总和允许超过 100%，超额人员不会进入可调度名单</span></div><div class="workload-column-head"><span>来源</span><span>项目</span><span>角色</span><span>占用</span><span>结束日期</span><span>状态</span><span></span></div><div id="workload-editor">${workRows.map(workloadRow).join('')}</div><button type="button" class="btn btn-soft btn-sm" id="add-workload">＋ 添加参与项目</button><div class="workload-total" id="workload-total"></div></section></form>`,footer:`${id?'<button class="btn btn-danger" id="delete-person">删除人员</button>':''}<button class="btn btn-outline" data-close-modal>取消</button><button class="btn btn-primary" id="save-person">保存人员档案</button>`,onOpen(){
+    const capabilityMap=new Map((existing.productionCapabilities||[]).map(item=>[item.skill,item]));
+    const renderCapabilities=()=>{const checked=$$('.skill-check:checked').map(input=>input.value);$('#capability-editor').innerHTML=checked.length?checked.map(skill=>{const item=capabilityMap.get(skill)||{};return `<div class="capability-edit-row" data-skill="${esc(skill)}"><strong>${esc(skill)}</strong><input class="cap-quantity" type="number" min="0" step="0.1" placeholder="数量" value="${esc(item.quantity||'')}"><input class="cap-unit" placeholder="单位，如 分钟/天" value="${esc(item.unit||CAPABILITY_UNIT_SUGGESTIONS[skill]||'')}"><input class="cap-complexity" placeholder="适用难度 / 等级" value="${esc(item.complexity||'')}"><input class="cap-note" placeholder="补充说明" value="${esc(item.note||'')}"></div>`}).join(''):'<span class="muted-copy">选择技能后即可填写对应制作能力</span>';};
+    const refreshWorkRows=()=>{$$('.workload-edit-row').forEach(row=>{const external=$('.work-source',row).value==='external';$('.ai-work-field',row).hidden=external;$('.external-work-field',row).hidden=!external;});const total=$$('.workload-edit-row').filter(workloadEditorRowActive).reduce((sum,row)=>sum+Number($('.work-allocation',row).value||0),0);$('#workload-total').innerHTML=`有效项目占用合计 <strong class="${total>Number($('[name=capacity]').value||100)?'negative':'positive'}">${total}%</strong>${total>Number($('[name=capacity]').value||100)?'<span>已超过标准总产能，不建议继续安排新项目</span>':''}`;};
+    const bindSkill=input=>input.onchange=()=>{input.closest('.skill-option').querySelector('.skill-level').disabled=!input.checked;renderCapabilities();};$$('.skill-check').forEach(bindSkill);
+    $('#add-custom-skill').onclick=()=>{const skill=$('#custom-skill-name').value.trim();if(!skill)return;if($$('.skill-check').some(input=>input.value===skill)){toast('该技能标签已存在',true);return;}$('.skill-selector').insertAdjacentHTML('beforeend',`<label class="skill-option"><input type="checkbox" class="skill-check" value="${esc(skill)}" checked><span>${esc(skill)}</span><select class="skill-level">${SKILL_LEVELS.map(level=>`<option>${level}</option>`).join('')}</select></label>`);bindSkill($$('.skill-check').at(-1));$('#custom-skill-name').value='';renderCapabilities();};
+    $('#capability-editor').addEventListener('input',event=>{const row=event.target.closest('.capability-edit-row');if(!row)return;capabilityMap.set(row.dataset.skill,{skill:row.dataset.skill,quantity:$('.cap-quantity',row).value,unit:$('.cap-unit',row).value,complexity:$('.cap-complexity',row).value,note:$('.cap-note',row).value});});
+    $('#workload-editor').addEventListener('change',refreshWorkRows);$('#workload-editor').addEventListener('input',refreshWorkRows);$('#workload-editor').addEventListener('click',event=>{if(event.target.closest('.work-remove')){event.target.closest('.workload-edit-row').remove();refreshWorkRows();}});
+    $('#add-workload').onclick=()=>{$('#workload-editor').insertAdjacentHTML('beforeend',workloadRow({source:'AI项目库',status:'进行中'}));refreshWorkRows();};$('[name=capacity]').oninput=refreshWorkRows;renderCapabilities();refreshWorkRows();
+    $('#save-person').onclick=async()=>{const form=$('#person-form');if(!form.reportValidity())return;const raw=Object.fromEntries(new FormData(form));if(!id&&db.people.some(item=>item.name===raw.name)){toast('人员姓名已存在；如为同名人员，请添加团队标识',true);return;}const skillProfiles=$$('.skill-check:checked').map(input=>({skill:input.value,level:input.closest('.skill-option').querySelector('.skill-level').value}));const productionCapabilities=$$('.capability-edit-row').map(row=>({skill:row.dataset.skill,quantity:$('.cap-quantity',row).value,unit:$('.cap-unit',row).value,complexity:$('.cap-complexity',row).value,note:$('.cap-note',row).value})).filter(item=>item.quantity||item.unit||item.complexity||item.note);const saved=id?db.people.find(item=>item.id===id):{id:uid('person')};Object.assign(saved,migratePerson({...saved,...raw,capacity:Number(raw.capacity||100),function:positionToLegacyFunction(raw.position),skillProfiles,productionCapabilities,externalAssignments:[]}));if(!id)db.people.unshift(saved);db.assignments=db.assignments.filter(item=>item.personId!==saved.id);const externalAssignments=[];for(const row of $$('.workload-edit-row')){const source=$('.work-source',row).value;const common={id:row.dataset.assignmentId||uid(source==='ai'?'asg':'ext'),role:$('.work-role',row).value,allocation:Number($('.work-allocation',row).value||0),startDate:row.dataset.startDate||today(),endDate:$('.work-end-date',row).value,status:$('.work-status',row).value};if(source==='ai'){const projectId=$('.work-project-id',row).value;if(projectId)db.assignments.push({...common,personId:saved.id,projectId,needId:row.dataset.needId||'',stage:common.role.includes('资产')?'资产':common.role.includes('视频')?'视频':'其它'});}else{const name=$('.work-name',row).value.trim();if(name)externalAssignments.push({...common,name,department:$('.work-department',row).value||'其它部门'});}}saved.externalAssignments=externalAssignments;const total=personUsage(db,saved.id);logActivity(id?'更新人员':'新增人员',saved.name);await persist(total>Number(saved.capacity||100)?`人员资料已保存；当前超负荷 ${total-Number(saved.capacity||100)}%`:'人员资料已保存');closeModal();renderAll();};
     if(id)$('#delete-person').onclick=async()=>{if(!await confirmDialog('删除人员',`确定删除“${existing.name}”吗？该人员的项目分工会一并删除。`,true))return;db.people=db.people.filter(item=>item.id!==id);db.assignments=db.assignments.filter(item=>item.personId!==id);await persist('人员已删除');closeModal();renderAll();};
   }});
 }
@@ -299,8 +334,8 @@ function editAssignment({projectId='',personId='',needId='',role=''}={}) {
   const roleDefinition=REQUIRED_PROJECT_ROLES.find(item=>item.label===requestedRole||item.function===requestedRole);
   const selectedRole=roleDefinition?.label||requestedRole||'其它支持';
   const roleFunction=roleDefinition?.function||requestedRole;
-  const candidateList=(need?availableCandidates(need).map(item=>item.person):db.people.filter(item=>item.employmentStatus!=='离岗'&&personAvailable(db,item)>0))
-    .sort((a,b)=>Number(b.function===roleFunction)-Number(a.function===roleFunction)||personAvailable(db,b)-personAvailable(db,a));
+  const candidateList=(need?availableCandidates(need).map(item=>item.person):db.people.filter(item=>personAvailable(db,item)>0))
+    .sort((a,b)=>Number(personMatchesRole(b,roleFunction))-Number(personMatchesRole(a,roleFunction))||personAvailable(db,b)-personAvailable(db,a));
   if(!candidateList.length){toast('暂无剩余产能大于 0% 的可调度人员',true);return;}
   if(!personId||!candidateList.some(item=>item.id===personId))personId=candidateList[0].id;
   const initialStage=roleDefinition?.stage||need?.stage||'其它';
@@ -308,7 +343,7 @@ function editAssignment({projectId='',personId='',needId='',role=''}={}) {
   const roleOptions=[...REQUIRED_PROJECT_ROLES.map(item=>item.label),'其它支持',...(!roleDefinition&&requestedRole&&requestedRole!=='其它支持'?[requestedRole]:[])];
   openModal({title:requestedRole?`安排${requestedRole}`:'添加项目人员',subtitle:requestedRole?`优先展示职能匹配且产能未满的人员`:'仅展示剩余产能大于 0% 的人员',size:'medium',body:`<form id="assignment-form" class="form-grid">
     <div class="field full"><label>项目<em>*</em></label><select name="projectId" ${need?'disabled':''}>${db.projects.map(item=>`<option value="${item.id}" ${projectId===item.id?'selected':''}>${esc(item.name)}</option>`).join('')}</select></div>
-    <div class="field full"><label>人员<em>*</em></label><select name="personId">${candidateList.map(person=>`<option value="${person.id}" ${personId===person.id?'selected':''}>${esc(person.name)} · ${esc(person.function)} · 可用 ${personAvailable(db,person)}%</option>`).join('')}</select></div>
+    <div class="field full"><label>人员<em>*</em></label><select name="personId">${candidateList.map(person=>`<option value="${person.id}" ${personId===person.id?'selected':''}>${esc(person.name)} · ${esc(person.position||person.function)} · 可用 ${personAvailable(db,person)}%</option>`).join('')}</select></div>
     <div class="field"><label>项目角色<em>*</em></label><select name="role" required>${roleOptions.map(value=>`<option ${selectedRole===value?'selected':''}>${esc(value)}</option>`).join('')}</select></div>
     <div class="field"><label>制作环节</label><select name="stage">${['统筹','剧本','美术','资产','视频','剪辑','交付','其它'].map(value=>`<option ${initialStage===value?'selected':''}>${value}</option>`).join('')}</select></div>
     <div class="field"><label>投入产能（%）<em>*</em></label><input name="allocation" type="number" min="1" max="100" required value="${initialAllocation}"></div>
@@ -326,9 +361,9 @@ async function importSheet(kind) {
   const result=await api.importSheet(kind);if(result.canceled)return;if(result.error){toast(result.error,true);return;}const rows=result.rows||[];if(!rows.length){toast('文件中没有可导入的数据',true);return;}const ok=await confirmDialog('确认批量导入',`检测到 ${rows.length} 行${kind==='projects'?'项目':'人员'}数据。重名记录将更新，是否继续？`);if(!ok)return;
   let created=0,updated=0,skipped=0;
   if(kind==='people'){
-    for(const row of rows){const values=normalizePersonRow(row);if(!String(values.name||'').trim()){skipped++;continue;}let person=db.people.find(item=>item.name===values.name);if(person){Object.assign(person,values);updated++;}else{person={id:uid('person'),...values};db.people.push(person);created++;}const names=splitNames(row['参与项目']);const total=clampPercent(row['目前参与项目占据产能的百分比']);for(const projectName of names){const project=db.projects.find(item=>item.name===projectName||item.shortName===projectName);if(!project)continue;if(!db.assignments.some(item=>item.personId===person.id&&item.projectId===project.id)){db.assignments.push({id:uid('asg'),projectId:project.id,personId:person.id,role:person.function,stage:'其它',allocation:Math.round(total/Math.max(1,names.length)),startDate:today(),endDate:project.ddl||'',status:'进行中'});}}}
+    for(const row of rows){const values=normalizePersonRow(row);if(!String(values.name||'').trim()){skipped++;continue;}const aiProjects=values.aiProjectAllocations||[];delete values.aiProjectAllocations;let person=db.people.find(item=>item.name===values.name);if(person){Object.assign(person,values);updated++;}else{person={id:uid('person'),...values};db.people.push(person);created++;}const legacyTotal=Number(row['目前参与项目占据产能的百分比']||0);for(const entry of aiProjects){const project=db.projects.find(item=>item.name===entry.name||item.shortName===entry.name);if(!project)continue;const allocation=entry.allocation||Math.round(legacyTotal/Math.max(1,aiProjects.length));const existingAssignment=db.assignments.find(item=>item.personId===person.id&&item.projectId===project.id);const assignment={projectId:project.id,personId:person.id,role:entry.role||person.function,stage:(entry.role||'').includes('资产')?'资产':(entry.role||'').includes('视频')?'视频':'其它',allocation,startDate:today(),endDate:entry.endDate||project.ddl||'',status:'进行中'};if(existingAssignment)Object.assign(existingAssignment,assignment);else db.assignments.push({id:uid('asg'),...assignment});}}
   } else {
-    for(const row of rows){const values=normalizeProjectRow(row);if(!String(values.name||'').trim()){skipped++;continue;}let project=db.projects.find(item=>item.name===values.name);if(project){Object.assign(project,values);updated++;}else{project={id:uid('project'),...values};db.projects.push(project);created++;}for(const role of roleColumns(row)){let person=db.people.find(item=>item.name===role.name);if(!person){person={id:uid('person'),name:role.name,department:'待补充',function:role.fallbackFunction,skillLevel:'待补充',capability:'由项目资料导入自动创建，请补充完整人员信息',skills:'',capacity:100,releaseDate:'',employmentStatus:'在岗',contact:'',notes:''};db.people.push(person);}if(!db.assignments.some(item=>item.projectId===project.id&&item.personId===person.id&&item.role===role.role)){db.assignments.push({id:uid('asg'),projectId:project.id,personId:person.id,role:role.role,stage:role.role.includes('资产')?'资产':role.role.includes('视频')?'视频':'统筹',allocation:0,startDate:project.orderDate||'',endDate:project.ddl||'',status:'进行中'});}}
+    for(const row of rows){const values=normalizeProjectRow(row);if(!String(values.name||'').trim()){skipped++;continue;}let project=db.projects.find(item=>item.name===values.name);if(project){Object.assign(project,values);updated++;}else{project={id:uid('project'),...values};db.projects.push(project);created++;}for(const role of roleColumns(row)){let person=db.people.find(item=>item.name===role.name);if(!person){person=migratePerson({id:uid('person'),name:role.name,department:'未分配',function:role.fallbackFunction,capability:'由项目资料导入自动创建，请补充完整人员信息',capacity:100,releaseDate:'',employmentStatus:'在岗',contact:'',notes:''});db.people.push(person);}if(!db.assignments.some(item=>item.projectId===project.id&&item.personId===person.id&&item.role===role.role)){db.assignments.push({id:uid('asg'),projectId:project.id,personId:person.id,role:role.role,stage:role.role.includes('资产')?'资产':role.role.includes('视频')?'视频':'统筹',allocation:0,startDate:project.orderDate||'',endDate:project.ddl||'',status:'进行中'});}}
     }
   }
   logActivity('批量导入',`${kind==='projects'?'项目':'人员'}：新增 ${created}，更新 ${updated}`);await persist(`导入完成：新增 ${created}，更新 ${updated}${skipped?`，跳过 ${skipped}`:''}`);renderAll();
@@ -341,7 +376,7 @@ async function handleAction(action) {
   if(action==='import-projects')importSheet('projects');
   if(action==='import-people')importSheet('people');
   if(action==='backup'){const result=await api.exportBackup(db);if(result?.error)toast(result.error,true);else if(!result?.canceled)toast('完整备份已导出');}
-  if(action==='restore'){const result=await api.importBackup();if(result?.error){toast(result.error,true);return;}if(result?.canceled)return;if(await confirmDialog('覆盖当前数据','恢复备份会覆盖当前全部数据。确定继续吗？',true)){db={...emptyDatabase(),...result.data};await persist('备份已恢复');renderAll();}}
+  if(action==='restore'){const result=await api.importBackup();if(result?.error){toast(result.error,true);return;}if(result?.canceled)return;if(await confirmDialog('覆盖当前数据','恢复备份会覆盖当前全部数据。确定继续吗？',true)){db=migrateDatabase(result.data);await persist('备份已恢复');renderAll();}}
   if(action==='clear'){if(await confirmDialog('清空全部数据','此操作会删除所有项目、人员、分工与需求，且无法撤销。',true)){db=emptyDatabase();await persist('全部数据已清空');renderAll();}}
 }
 
@@ -354,6 +389,7 @@ document.addEventListener('click', async event => {
   const openProject=event.target.closest('[data-open-project]');if(openProject){showProject(openProject.dataset.openProject);return;}
   const editProjectButton=event.target.closest('[data-edit-project]');if(editProjectButton){editProject(editProjectButton.dataset.editProject);return;}
   const editPersonButton=event.target.closest('[data-edit-person]');if(editPersonButton){editPerson(editPersonButton.dataset.editPerson);return;}
+  const openPerson=event.target.closest('[data-open-person]');if(openPerson){showPerson(openPerson.dataset.openPerson);return;}
   const editNeedButton=event.target.closest('[data-edit-need]');if(editNeedButton){editNeed(editNeedButton.dataset.editNeed);return;}
   const assignNeed=event.target.closest('[data-assign-need]');if(assignNeed){editAssignment({needId:assignNeed.dataset.assignNeed});return;}
   const assignPerson=event.target.closest('[data-assign-person]');if(assignPerson){editAssignment({personId:assignPerson.dataset.assignPerson});return;}
@@ -367,7 +403,8 @@ document.addEventListener('input', event => {
 });
 document.addEventListener('change', event => {
   if(event.target.id==='project-status-filter'){filters.projectStatus=event.target.value;renderProjects();}
-  if(event.target.id==='people-function-filter'){filters.peopleFunction=event.target.value;renderPeople();}
+  if(event.target.id==='people-department-filter'){filters.peopleDepartment=event.target.value;renderPeople();}
+  if(event.target.id==='people-position-filter'){filters.peoplePosition=event.target.value;renderPeople();}
 });
 
 $('#quick-project').onclick=()=>editProject();
@@ -375,5 +412,5 @@ $('#quick-need').onclick=()=>editNeed();
 $('#global-search').addEventListener('keydown',event=>{if(event.key!=='Enter')return;const value=event.target.value.trim();if(!value)return;filters.projects=value;setView('projects');});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeModal();});
 
-db = { ...emptyDatabase(), ...(await api.loadData()) };
+db = migrateDatabase(await api.loadData());
 renderAll();

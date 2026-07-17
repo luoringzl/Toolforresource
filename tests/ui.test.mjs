@@ -31,6 +31,27 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   assert.ok(document.querySelector('.project-info-collapse'),'项目基础资料应收纳在折叠区域');
   document.querySelector('[data-close-modal]').click();
 
+  document.querySelector('[data-view="people"]').click();
+  assert.ok(document.querySelector('.person-card'),'人员库应使用能力与产能卡片');
+  document.querySelector('.person-card').click();
+  assert.ok(document.querySelector('.person-detail-summary'),'点击人员应显示产能概览');
+  document.querySelector('#person-detail-edit').click();
+  assert.ok(document.querySelector('.person-profile-form'),'人员编辑应使用完整能力档案表单');
+  assert.ok(document.querySelector('.skill-selector'),'人员编辑应支持技能多选和等级');
+  document.querySelector('.skill-check').click();
+  assert.ok(document.querySelector('.capability-edit-row'),'选中技能后应显示对应制作能力输入');
+  document.querySelector('#add-workload').click();
+  const addedWorkload=[...document.querySelectorAll('.workload-edit-row')].at(-1);
+  addedWorkload.querySelector('.work-source').value='external';
+  addedWorkload.querySelector('.work-source').dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  addedWorkload.querySelector('.work-name').value='内部培训';
+  addedWorkload.querySelector('.work-department').value='教培部门';
+  addedWorkload.querySelector('.work-allocation').value='30';
+  document.querySelector('#save-person').click();
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const savedPeople=JSON.parse(localStorage.getItem('project-resource-db')).people;
+  assert.equal(savedPeople[0].externalAssignments[0].name,'内部培训');
+
   document.querySelector('#quick-project').click();
   const form = document.querySelector('#project-form');
   assert.ok(form, '新建项目弹窗应出现');

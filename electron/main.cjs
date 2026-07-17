@@ -11,7 +11,7 @@ function databasePath() {
 
 function emptyDatabase() {
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
     projects: [],
     people: [],
@@ -37,7 +37,7 @@ function loadDatabase() {
 
 function saveDatabase(data) {
   const file = databasePath();
-  const next = { ...data, version: 1, updatedAt: new Date().toISOString() };
+  const next = { ...data, version: 2, updatedAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(next, null, 2), 'utf8');

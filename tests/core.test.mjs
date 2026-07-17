@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   emptyDatabase, personUsage, personAvailable, projectHealth, needAllocated,
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
-  assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings
+  assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
+  personRemainingCapacity, personWorkloadBreakdown, migrateDatabase, parseSkillProfiles, parseProductionCapabilities
 } from '../src/core.mjs';
 
 function fixture() {
@@ -94,4 +95,36 @@ test('项目人员列支持顿号、逗号和分号', () => {
   const roles=roleColumns({'视频制作人员':'甲、乙,丙；丁'});
   assert.equal(roles.length,4);
   assert.ok(roles.every(item=>item.role==='视频制作'));
+});
+
+test('其它部门项目计入产能，超负荷保留负数剩余产能', () => {
+  const db=fixture();
+  db.people[0].externalAssignments=[{id:'e1',name:'内部培训',department:'教培部门',allocation:50,status:'进行中',endDate:'2099-12-31'}];
+  assert.equal(personUsage(db,'u1','2026-07-16'),120);
+  assert.equal(personRemainingCapacity(db,db.people[0],'2026-07-16'),-20);
+  assert.equal(personAvailable(db,db.people[0],'2026-07-16'),0);
+  assert.equal(personWorkloadBreakdown(db,'u1','2026-07-16').length,2);
+});
+
+test('未来释放日期和非在岗状态不进入可调度名单', () => {
+  const db=fixture();
+  db.people[0].releaseDate='2099-01-01';
+  assert.equal(personAvailable(db,db.people[0],'2026-07-16'),0);
+  db.people[0].releaseDate='';db.people[0].employmentStatus='请假';
+  assert.equal(personAvailable(db,db.people[0],'2026-07-16'),0);
+});
+
+test('旧版人员资料自动迁移为部门职位与技能等级模型', () => {
+  const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
+  assert.equal(db.version,2);
+  assert.equal(db.people[0].position,'AI动画师');
+  assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);
+});
+
+test('人员导入模板语法解析技能等级与分方向制作能力', () => {
+  assert.deepEqual(parseSkillProfiles('AI视频制作|高级；剪辑|中级'),[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'中级'}]);
+  assert.deepEqual(parseProductionCapabilities('AI视频制作|2|分钟/天|电影级|'),[{skill:'AI视频制作',quantity:'2',unit:'分钟/天',complexity:'电影级',note:''}]);
+  const person=normalizePersonRow({'人员姓名':'小周','归属部门':'AI项目组','职位':'AI动画师','技能与等级':'AI视频制作|高级','标准总产能':120});
+  assert.equal(person.capacity,120);
+  assert.equal(person.skillProfiles[0].level,'高级');
 });
