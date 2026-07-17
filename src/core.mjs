@@ -8,6 +8,17 @@ export const REQUIRED_PROJECT_ROLES = [
   { key: 'asset', label: '资产制作人员', function: '资产制作', stage: '资产' }
 ];
 
+export const DEPARTMENTS = ['AI项目组', 'UE引擎组', 'CG资产组', '导演组', '教培部门', '商务部门', 'AI后期组', '未分配'];
+export const POSITIONS = ['AI动画师', '导演', 'UE蓝图动画师', 'UE场景设计师', 'AI后期', 'AI技术研究', 'CG资产师', '商务', '导演助理', '项目经理 / PM', '制片', '美术监制', '剪辑师', '技术支持', '其它'];
+export const SKILL_OPTIONS = ['AI视频制作', 'AI资产制作', 'UE蓝图开发', 'UE场景制作', 'AI后期', '剪辑', 'AI转绘', '3D模型', '3D动作', '3D特效', 'AI特效', '分镜设计', '剧本分析', '项目管理'];
+export const SKILL_LEVELS = ['专家', '高级', '中级', '初级', '学习中'];
+export const EMPLOYMENT_STATUSES = ['在岗', '请假', '异动', '停薪留岗', '外包', '离岗'];
+export const CAPABILITY_UNIT_SUGGESTIONS = {
+  'AI视频制作': '分钟/天', 'AI资产制作': '张/天', 'UE蓝图开发': '天/条C级蓝图', 'UE场景制作': '场景/周',
+  'AI后期': '分钟/天', '剪辑': '分钟/天', 'AI转绘': '张/天', '3D模型': '个/周', '3D动作': '条/天',
+  '3D特效': '条/周', 'AI特效': '条/天', '分镜设计': '镜头/天', '剧本分析': '集/天', '项目管理': '项目/人'
+};
+
 export const projectFields = [
   ['name', '项目名称', 'text', true], ['shortName', '项目简称', 'text'],
   ['priority', '优先级', 'select', false, ['P0 紧急', 'P1 高', 'P2 中', 'P3 低']],
@@ -30,13 +41,10 @@ export const projectFields = [
 ];
 
 export const peopleFields = [
-  ['name', '姓名', 'text', true], ['department', '所属部门 / 团队', 'text'],
-  ['function', '职能', 'select', true, ['导演', '项目经理 PM', '美术监制', '资产制作', '视频制作', '编剧', '剪辑', '技术支持', '其它']],
-  ['skillLevel', '技术能力', 'select', false, ['专家', '高级', '中级', '初级', '待补充']],
-  ['capability', '个人能力信息说明', 'textarea'], ['skills', '技能标签（顿号分隔）', 'text'],
-  ['capacity', '标准产能（%）', 'number'], ['releaseDate', '产能释放日期', 'date'],
-  ['employmentStatus', '在岗状态', 'select', false, ['在岗', '请假', '外包', '离岗']],
-  ['contact', '联系方式', 'text'], ['notes', '备注', 'textarea']
+  ['name', '人员姓名', 'text', true], ['department', '归属部门', 'select', true, DEPARTMENTS],
+  ['position', '职位', 'select', true, POSITIONS], ['capacity', '标准总产能（%）', 'number'],
+  ['releaseDate', '产能释放日期', 'date'], ['employmentStatus', '在岗状态', 'select', false, EMPLOYMENT_STATUSES],
+  ['capability', '综合能力说明', 'textarea'], ['contact', '联系方式', 'text'], ['notes', '备注', 'textarea']
 ];
 
 export const projectHeaders = [
@@ -46,7 +54,7 @@ export const projectHeaders = [
 ];
 
 export const peopleHeaders = [
-  '姓名','所属部门/团队','职能','个人能力信息说明','标准产能','参与项目','产能释放日期','目前参与项目占据产能的百分比','在岗状态','技术能力','技能标签','联系方式','备注'
+  '人员姓名','归属部门','职位','技能与等级','制作能力','AI项目及产能占用','其它部门项目及产能占用','标准总产能','产能释放日期','在岗状态','综合能力说明','联系方式','备注'
 ];
 
 export function uid(prefix = 'id') {
@@ -54,12 +62,76 @@ export function uid(prefix = 'id') {
 }
 
 export function emptyDatabase() {
-  return { version: 1, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7 } };
+  return { version: 2, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7 } };
 }
 
 export function clampPercent(value) {
   const number = Number(value || 0);
   return Math.min(100, Math.max(0, Number.isFinite(number) ? number : 0));
+}
+
+export function positionToLegacyFunction(position = '') {
+  if (position === '导演') return '导演';
+  if (['AI动画师', 'AI后期', '剪辑师'].includes(position)) return '视频制作';
+  if (position === 'CG资产师') return '资产制作';
+  if (position === '项目经理 / PM') return '项目经理 PM';
+  if (position === '美术监制') return '美术监制';
+  if (['UE蓝图动画师', 'UE场景设计师', 'AI技术研究', '技术支持'].includes(position)) return '技术支持';
+  return position || '其它';
+}
+
+export function legacyFunctionToPosition(value = '') {
+  const mapping = { '视频制作':'AI动画师', '资产制作':'CG资产师', '项目经理 PM':'项目经理 / PM', '剪辑':'剪辑师' };
+  return POSITIONS.includes(value) ? value : mapping[value] || value || '其它';
+}
+
+export function parseSkillProfiles(value, fallbackLevel = '中级') {
+  if (Array.isArray(value)) return value.filter(item => item?.skill).map(item => ({ skill: item.skill, level: item.level || fallbackLevel }));
+  return String(value || '').split(/[、,，;；\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
+    const [skill, level] = item.split(/[|｜:：]/).map(part => part.trim());
+    return { skill, level: level || fallbackLevel };
+  });
+}
+
+export function parseProductionCapabilities(value) {
+  if (Array.isArray(value)) return value.filter(item => item?.skill).map(item => ({ skill:item.skill, quantity:String(item.quantity || ''), unit:item.unit || '', complexity:item.complexity || '', note:item.note || '' }));
+  return String(value || '').split(/[；;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
+    const [skill, quantity, unit, complexity, note] = item.split(/[|｜]/).map(part => part.trim());
+    return { skill, quantity: quantity || '', unit: unit || '', complexity: complexity || '', note: note || '' };
+  });
+}
+
+export function parseProjectAllocations(value) {
+  return String(value || '').split(/[、；;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
+    const [name, allocation, role, endDate] = item.split(/[|｜]/).map(part => part.trim());
+    return { name, allocation:Number(allocation || 0), role:role || '', endDate:endDate || '' };
+  });
+}
+
+export function parseExternalAssignments(value) {
+  if (Array.isArray(value)) return value.filter(item => item?.name).map(item => ({ ...item, allocation:Number(item.allocation || 0) }));
+  return String(value || '').split(/[；;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
+    const [name, department, allocation, role, endDate] = item.split(/[|｜]/).map(part => part.trim());
+    return { id:uid('ext'), name, department:department || '其它部门', allocation:Number(allocation || 0), role:role || '', endDate:endDate || '', status:'进行中' };
+  });
+}
+
+export function migratePerson(person = {}) {
+  const position = person.position || legacyFunctionToPosition(person.function);
+  const skillProfiles = parseSkillProfiles(person.skillProfiles?.length ? person.skillProfiles : person.skills, person.skillLevel || '中级');
+  return {
+    ...person,
+    department: person.department || '未分配', position, function: person.function || positionToLegacyFunction(position),
+    capacity: Number(person.capacity || 100), employmentStatus: person.employmentStatus || '在岗',
+    skillProfiles, skills: skillProfiles.map(item => item.skill).join('、'),
+    productionCapabilities: parseProductionCapabilities(person.productionCapabilities),
+    externalAssignments: parseExternalAssignments(person.externalAssignments)
+  };
+}
+
+export function migrateDatabase(data = {}) {
+  const base = emptyDatabase();
+  return { ...base, ...data, version:2, projects:data.projects || [], assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...(data.settings || {})}, people:(data.people || []).map(migratePerson) };
 }
 
 export function assignmentRoleKey(assignment = {}) {
@@ -87,15 +159,56 @@ export function assignmentConsumesCapacity(db, assignment, today = new Date().to
 }
 
 export function personUsage(db, personId, today = new Date().toISOString().slice(0, 10)) {
-  return db.assignments
+  const projectUsage = db.assignments
     .filter(item => item.personId === personId)
     .filter(item => assignmentConsumesCapacity(db, item, today))
     .reduce((total, item) => total + Number(item.allocation || 0), 0);
+  const person = db.people.find(item => item.id === personId);
+  const externalUsage = (person?.externalAssignments || [])
+    .filter(item => externalAssignmentConsumesCapacity(item, today))
+    .reduce((total, item) => total + Number(item.allocation || 0), 0);
+  return projectUsage + externalUsage;
 }
 
-export function personAvailable(db, person) {
-  if (!person || person.employmentStatus === '离岗') return 0;
-  return Math.max(0, Number(person.capacity || 100) - personUsage(db, person.id));
+export function externalAssignmentConsumesCapacity(assignment, today = new Date().toISOString().slice(0, 10)) {
+  if (!assignment || ['已结束', '已取消'].includes(assignment.status)) return false;
+  return !assignment.endDate || assignment.endDate >= today;
+}
+
+export function personRemainingCapacity(db, person, today = new Date().toISOString().slice(0, 10)) {
+  if (!person) return 0;
+  return Number(person.capacity || 100) - personUsage(db, person.id, today);
+}
+
+export function isPersonSchedulable(person, today = new Date().toISOString().slice(0, 10)) {
+  return Boolean(person) && person.employmentStatus === '在岗' && (!person.releaseDate || person.releaseDate <= today);
+}
+
+export function personAvailable(db, person, today = new Date().toISOString().slice(0, 10)) {
+  if (!isPersonSchedulable(person, today)) return 0;
+  return Math.max(0, personRemainingCapacity(db, person, today));
+}
+
+export function personWorkloadBreakdown(db, personId, today = new Date().toISOString().slice(0, 10)) {
+  const person = db.people.find(item => item.id === personId);
+  const ai = db.assignments.filter(item => item.personId === personId).map(item => {
+    const project = db.projects.find(projectItem => projectItem.id === item.projectId);
+    return { ...item, source:'AI项目库', name:project?.name || '项目已删除', department:'AI项目组', active:assignmentConsumesCapacity(db, item, today) };
+  });
+  const external = (person?.externalAssignments || []).map(item => ({ ...item, source:'其它部门', active:externalAssignmentConsumesCapacity(item, today) }));
+  return [...ai, ...external];
+}
+
+export function personMatchesRole(person, role = '') {
+  const query = String(role || '').replace(/\s+/g, '');
+  if (!query) return false;
+  const haystack = [person?.position, person?.function, ...(person?.skillProfiles || []).map(item => item.skill), person?.skills].join('|').replace(/\s+/g, '');
+  if (haystack.includes(query) || query.includes(String(person?.position || '').replace(/\s+/g, ''))) return true;
+  const aliases = {
+    '项目负责人/导演':['导演','项目管理'], '视频制作人员':['AI动画师','AI视频制作','AI后期','剪辑'],
+    '资产制作人员':['CG资产师','AI资产制作','3D模型'], 'PM':['项目经理','项目管理','制片'], '美术监制':['美术监制','UE场景设计师']
+  };
+  return (aliases[role] || []).some(value => haystack.includes(value));
 }
 
 export function projectAssignments(db, projectId) {
@@ -178,10 +291,17 @@ export function normalizeProjectRow(row) {
 }
 
 export function normalizePersonRow(row) {
-  return {
-    name: row['姓名'], department: row['所属部门/团队'], function: row['职能'] || '其它', capability: row['个人能力信息说明'], capacity: clampPercent(row['标准产能'] || 100),
-    releaseDate: row['产能释放日期'], employmentStatus: row['在岗状态'] || '在岗', skillLevel: row['技术能力'] || '中级', skills: row['技能标签'], contact: row['联系方式'], notes: row['备注']
-  };
+  const position = row['职位'] || legacyFunctionToPosition(row['职能']);
+  const skillProfiles = parseSkillProfiles(row['技能与等级'] || row['技能标签'], row['技术能力'] || '中级');
+  const legacyProjectText = row['参与项目'];
+  const aiProjectAllocations = parseProjectAllocations(row['AI项目及产能占用'] || legacyProjectText);
+  return migratePerson({
+    name: row['人员姓名'] || row['姓名'], department: row['归属部门'] || row['所属部门/团队'] || '未分配', position,
+    function: positionToLegacyFunction(position), capability: row['综合能力说明'] || row['个人能力信息说明'] || '',
+    capacity: Number(row['标准总产能'] || row['标准产能'] || 100), releaseDate: row['产能释放日期'] || '',
+    employmentStatus: row['在岗状态'] || '在岗', skillProfiles, productionCapabilities:parseProductionCapabilities(row['制作能力']),
+    externalAssignments:parseExternalAssignments(row['其它部门项目及产能占用']), contact:row['联系方式'] || '', notes:row['备注'] || '', aiProjectAllocations
+  });
 }
 
 export function roleColumns(row) {
