@@ -11,7 +11,7 @@ export const REQUIRED_PROJECT_ROLES = [
 ];
 
 export const DEPARTMENTS = ['AI项目组', 'UE引擎组', 'CG资产组', '导演组', '教培部门', '商务部门', 'AI后期组', '未分配'];
-export const POSITIONS = ['AI动画师', '导演', 'UE蓝图动画师', 'UE场景设计师', 'AI后期', 'AI技术研究', 'CG资产师', '商务', '导演助理', '项目经理 / PM', '制片', '美术监制', '剪辑师', '技术支持', '其它'];
+export const POSITIONS = ['总经理', '人事总监', '项目经理 / PM', 'AI动画师', '导演', 'UE蓝图动画师', 'UE场景设计师', 'AI后期', 'AI技术研究', 'CG资产师', '商务', '导演助理', '制片', '美术监制', '剪辑师', '技术支持', '其它'];
 export const SKILL_OPTIONS = ['AI视频制作', 'AI资产制作', 'UE蓝图开发', 'UE场景制作', 'AI后期', '剪辑', 'AI转绘', '3D模型', '3D动作', '3D特效', 'AI特效', '分镜设计', '剧本分析', '项目管理'];
 export const SKILL_LEVELS = ['专家', '高级', '中级', '初级', '学习中'];
 export const EMPLOYMENT_STATUSES = ['在岗', '请假', '异动', '停薪留岗', '外包', '离岗'];
@@ -19,6 +19,14 @@ export const CAPABILITY_UNIT_SUGGESTIONS = {
   'AI视频制作': '分钟/天', 'AI资产制作': '张/天', 'UE蓝图开发': '天/条C级蓝图', 'UE场景制作': '场景/周',
   'AI后期': '分钟/天', '剪辑': '分钟/天', 'AI转绘': '张/天', '3D模型': '个/周', '3D动作': '条/天',
   '3D特效': '条/周', 'AI特效': '条/天', '分镜设计': '镜头/天', '剧本分析': '集/天', '项目管理': '项目/人'
+};
+
+export const DEFAULT_DICTIONARIES = {
+  departments: DEPARTMENTS,
+  positions: POSITIONS,
+  skills: SKILL_OPTIONS,
+  employmentStatuses: EMPLOYMENT_STATUSES,
+  projectStatuses: PROJECT_STATUSES
 };
 
 export const projectFields = [
@@ -64,7 +72,7 @@ export function uid(prefix = 'id') {
 }
 
 export function emptyDatabase() {
-  return { version: 2, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7 } };
+  return { version: 3, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
 }
 
 export function clampPercent(value) {
@@ -72,14 +80,25 @@ export function clampPercent(value) {
   return Math.min(100, Math.max(0, Number.isFinite(number) ? number : 0));
 }
 
+export function parsePositions(value) {
+  if (Array.isArray(value)) return [...new Set(value.map(item => String(item || '').trim()).filter(Boolean))];
+  return [...new Set(String(value || '').split(/[、,，;；|\n]+/).map(item => item.trim()).filter(Boolean))];
+}
+
+export function personPositions(person = {}) {
+  const values = parsePositions(person.positions?.length ? person.positions : person.position);
+  return values.length ? values : [legacyFunctionToPosition(person.function)];
+}
+
 export function positionToLegacyFunction(position = '') {
-  if (position === '导演') return '导演';
-  if (['AI动画师', 'AI后期', '剪辑师'].includes(position)) return '视频制作';
-  if (position === 'CG资产师') return '资产制作';
-  if (position === '项目经理 / PM') return '项目经理 PM';
-  if (position === '美术监制') return '美术监制';
-  if (['UE蓝图动画师', 'UE场景设计师', 'AI技术研究', '技术支持'].includes(position)) return '技术支持';
-  return position || '其它';
+  const positions = parsePositions(position);
+  if (positions.includes('导演')) return '导演';
+  if (positions.some(value => ['AI动画师', 'AI后期', '剪辑师'].includes(value))) return '视频制作';
+  if (positions.includes('CG资产师')) return '资产制作';
+  if (positions.includes('项目经理 / PM')) return '项目经理 PM';
+  if (positions.includes('美术监制')) return '美术监制';
+  if (positions.some(value => ['UE蓝图动画师', 'UE场景设计师', 'AI技术研究', '技术支持'].includes(value))) return '技术支持';
+  return positions[0] || '其它';
 }
 
 export function legacyFunctionToPosition(value = '') {
@@ -119,11 +138,12 @@ export function parseExternalAssignments(value) {
 }
 
 export function migratePerson(person = {}) {
-  const position = person.position || legacyFunctionToPosition(person.function);
+  const positions = parsePositions(person.positions?.length ? person.positions : (person.position || legacyFunctionToPosition(person.function)));
+  const position = positions.join('、');
   const skillProfiles = parseSkillProfiles(person.skillProfiles?.length ? person.skillProfiles : person.skills, person.skillLevel || '中级');
   return {
     ...person,
-    department: person.department || '未分配', position, function: person.function || positionToLegacyFunction(position),
+    department: person.department || '未分配', positions, position, function: positionToLegacyFunction(positions),
     capacity: Number(person.capacity || 100), employmentStatus: person.employmentStatus || '在岗',
     skillProfiles, skills: skillProfiles.map(item => item.skill).join('、'),
     productionCapabilities: parseProductionCapabilities(person.productionCapabilities),
@@ -133,7 +153,8 @@ export function migratePerson(person = {}) {
 
 export function migrateDatabase(data = {}) {
   const base = emptyDatabase();
-  return { ...base, ...data, version:2, projects:data.projects || [], assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...(data.settings || {})}, people:(data.people || []).map(migratePerson) };
+  const settings = data.settings || {};
+  return { ...base, ...data, version:3, projects:data.projects || [], assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
 }
 
 export function assignmentRoleKey(assignment = {}) {
@@ -203,10 +224,10 @@ export function personWorkloadBreakdown(db, personId, today = new Date().toISOSt
 }
 
 export function personMatchesRole(person, role = '') {
-  const query = String(role || '').replace(/\s+/g, '');
+  const query = String(role || '').replace(/[\s/]+/g, '');
   if (!query) return false;
-  const haystack = [person?.position, person?.function, ...(person?.skillProfiles || []).map(item => item.skill), person?.skills].join('|').replace(/\s+/g, '');
-  if (haystack.includes(query) || query.includes(String(person?.position || '').replace(/\s+/g, ''))) return true;
+  const haystack = [...personPositions(person), person?.function, ...(person?.skillProfiles || []).map(item => item.skill), person?.skills].join('|').replace(/[\s/]+/g, '');
+  if (haystack.includes(query) || query.includes(String(person?.position || '').replace(/[\s/]+/g, ''))) return true;
   const aliases = {
     '项目负责人/导演':['导演','项目管理'], '视频制作人员':['AI动画师','AI视频制作','AI后期','剪辑'],
     '资产制作人员':['CG资产师','AI资产制作','3D模型'], 'PM':['项目经理','项目管理','制片'], '美术监制':['美术监制','UE场景设计师']
@@ -319,13 +340,13 @@ export function normalizeProjectRow(row) {
 }
 
 export function normalizePersonRow(row) {
-  const position = row['职位'] || legacyFunctionToPosition(row['职能']);
+  const positions = parsePositions(row['职位'] || legacyFunctionToPosition(row['职能']));
   const skillProfiles = parseSkillProfiles(row['技能与等级'] || row['技能标签'], row['技术能力'] || '中级');
   const legacyProjectText = row['参与项目'];
   const aiProjectAllocations = parseProjectAllocations(row['AI项目及产能占用'] || legacyProjectText);
   return migratePerson({
-    name: row['人员姓名'] || row['姓名'], department: row['归属部门'] || row['所属部门/团队'] || '未分配', position,
-    function: positionToLegacyFunction(position), capability: row['综合能力说明'] || row['个人能力信息说明'] || '',
+    name: row['人员姓名'] || row['姓名'], department: row['归属部门'] || row['所属部门/团队'] || '未分配', positions, position:positions.join('、'),
+    function: positionToLegacyFunction(positions), capability: row['综合能力说明'] || row['个人能力信息说明'] || '',
     capacity: Number(row['标准总产能'] || row['标准产能'] || 100), releaseDate: row['预计产能释放日期'] || row['产能释放日期'] || '',
     employmentStatus: row['在岗状态'] || '在岗', skillProfiles, productionCapabilities:parseProductionCapabilities(row['制作能力']),
     externalAssignments:parseExternalAssignments(row['其它部门项目及产能占用']), contact:row['联系方式'] || '', notes:row['备注'] || '', aiProjectAllocations

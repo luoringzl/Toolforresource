@@ -4,7 +4,7 @@ import {
   emptyDatabase, personUsage, personAvailable, projectHealth, needAllocated,
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
   assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
-  personRemainingCapacity, personWorkloadBreakdown, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects
+  personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects
 } from '../src/core.mjs';
 
 function fixture() {
@@ -131,11 +131,19 @@ test('项目默认按进行中、待启动、暂停、已完结分组，并按�
   ]);
 });
 
-test('旧版人员资料自动迁移为部门职位与技能等级模型', () => {
+test('旧版人员资料自动迁移为多职位与技能等级模型', () => {
   const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
-  assert.equal(db.version,2);
+  assert.equal(db.version,3);
   assert.equal(db.people[0].position,'AI动画师');
+  assert.deepEqual(db.people[0].positions,['AI动画师']);
   assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);
+});
+
+test('职位支持多选，并可由任一职位匹配项目岗位', () => {
+  const person=migrateDatabase({people:[{id:'u1',name:'复合岗位',position:'导演、项目经理 / PM'}]}).people[0];
+  assert.deepEqual(person.positions,['导演','项目经理 / PM']);
+  assert.equal(personMatchesRole(person,'导演'),true);
+  assert.equal(personMatchesRole(person,'项目经理 PM'),true);
 });
 
 test('人员导入模板语法解析技能等级与分方向制作能力', () => {

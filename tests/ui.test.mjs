@@ -17,7 +17,7 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   globalThis.Blob = dom.window.Blob;
   globalThis.URL = dom.window.URL;
 
-  localStorage.setItem('project-resource-db',JSON.stringify({version:1,settings:{warningDays:7},activity:[],staffingNeeds:[],projects:[{id:'p1',name:'视觉测试项目',priority:'P1 高',status:'视频制作中',ddl:'2099-12-31',overallProgress:60,assetProgress:100,videoProgress:40}],people:[{id:'u1',name:'测试导演',function:'导演',capacity:100,employmentStatus:'在岗'}],assignments:[{id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',stage:'统筹',allocation:50,status:'进行中'}]}));
+  localStorage.setItem('project-resource-db',JSON.stringify({version:1,settings:{warningDays:7},activity:[],staffingNeeds:[],projects:[{id:'p1',name:'视觉测试项目',priority:'P1 高',status:'视频制作中',ddl:'2099-12-31',overallProgress:60,assetProgress:100,videoProgress:40}],people:[{id:'u1',name:'测试导演',function:'导演',capacity:100,employmentStatus:'在岗'},{id:'u2',name:'满载动画师',position:'AI动画师',capacity:100,employmentStatus:'在岗'}],assignments:[{id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',stage:'统筹',allocation:50,status:'进行中'},{id:'a2',projectId:'p1',personId:'u2',role:'其它支持',stage:'其它',allocation:100,status:'进行中'}]}));
 
   await import(`${pathToFileURL(path.join(root, 'src/app.mjs')).href}?smoke=1`);
   assert.match(document.querySelector('#view-dashboard').textContent, /进行中项目/);
@@ -35,12 +35,17 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
 
   document.querySelector('[data-view="people"]').click();
   assert.ok(document.querySelector('.person-card'),'人员库应使用能力与产能卡片');
+  assert.equal(document.querySelectorAll('.person-card').length,2);
+  document.querySelector('[data-people-metric="available"]').click();
+  assert.equal(document.querySelectorAll('.person-card').length,1,'可调度指标卡应直接筛选剩余产能人员');
+  document.querySelector('[data-people-metric="all"]').click();
   document.querySelector('.person-card').click();
   assert.ok(document.querySelector('.person-detail-summary'),'点击人员应显示产能概览');
   document.querySelector('#person-detail-edit').click();
   assert.ok(document.querySelector('.person-profile-form'),'人员编辑应使用完整能力档案表单');
   assert.match(document.querySelector('[name="releaseDate"]').closest('.field').textContent,/仅作排期参考/);
   assert.ok(document.querySelector('.skill-selector'),'人员编辑应支持技能多选和等级');
+  assert.ok(document.querySelector('.position-selector'),'职位应支持多选');
   document.querySelector('.skill-check').click();
   assert.ok(document.querySelector('.capability-edit-row'),'选中技能后应显示对应制作能力输入');
   document.querySelector('#add-workload').click();
@@ -54,6 +59,10 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   await new Promise(resolve => setTimeout(resolve, 5));
   const savedPeople=JSON.parse(localStorage.getItem('project-resource-db')).people;
   assert.equal(savedPeople[0].externalAssignments[0].name,'内部培训');
+
+  document.querySelector('[data-view="schedule"]').click();
+  assert.equal(document.querySelectorAll('.core-gap-item').length,1,'同一项目的多个缺员岗位应汇总为一张项目卡');
+  assert.equal(document.querySelectorAll('.candidate').length,2,'候选人员应包含满载人员');
 
   document.querySelector('#quick-project').click();
   const form = document.querySelector('#project-form');
