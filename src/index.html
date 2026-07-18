@@ -7,7 +7,22 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app-shell">
+  <section class="login-screen" id="login-screen">
+    <div class="login-panel">
+      <div class="login-brand"><div class="brand-mark">调</div><div><strong>项目人员调度台</strong><span>本地离线账号登录</span></div></div>
+      <h1>欢迎登录</h1>
+      <p>项目、人员、账号和密码均保存在当前电脑，不上传网络。</p>
+      <form id="login-form">
+        <label>账号<input name="username" autocomplete="username" required placeholder="人员姓名或 admin"></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码"></label>
+        <div class="login-error" id="login-error"></div>
+        <button class="btn btn-primary" type="submit">登录调度台</button>
+      </form>
+      <div class="initial-login-note" id="initial-login-note"><strong>首次登录</strong><span>首次启动时会在此显示高级管理员的随机临时密码。</span><span>人员账号由管理员建档后自动生成随机临时密码。</span><small>临时密码仅保存在本机，首次登录后必须修改。</small></div>
+    </div>
+  </section>
+
+  <div class="app-shell auth-pending" id="app-shell">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">调</div>
@@ -22,6 +37,8 @@
       </nav>
       <div class="sidebar-foot">
         <button class="nav-item" data-view="settings"><span>⚙</span>数据与设置</button>
+        <button class="account-card" id="account-card" data-action="change-password"><i id="account-avatar">管</i><span><strong id="account-name">未登录</strong><small id="account-role">查看权限</small></span></button>
+        <button class="logout-button" id="logout-button">退出登录</button>
         <div class="offline-pill"><i></i>本地离线运行</div>
       </div>
     </aside>
