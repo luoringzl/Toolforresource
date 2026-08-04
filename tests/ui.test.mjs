@@ -17,7 +17,7 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   globalThis.Blob = dom.window.Blob;
   globalThis.URL = dom.window.URL;
 
-  localStorage.setItem('project-resource-db',JSON.stringify({version:1,settings:{warningDays:7},activity:[],staffingNeeds:[],projects:[{id:'p1',name:'视觉测试项目',priority:'P1 高',status:'视频制作中',ddl:'2099-12-31',overallProgress:60,assetProgress:100,videoProgress:40}],people:[{id:'u1',name:'测试导演',function:'导演',capacity:100,employmentStatus:'在岗'},{id:'u2',name:'满载动画师',position:'AI动画师',capacity:100,employmentStatus:'在岗'}],assignments:[{id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',stage:'统筹',allocation:50,status:'进行中'},{id:'a2',projectId:'p1',personId:'u2',role:'其它支持',stage:'其它',allocation:100,status:'进行中'}]}));
+  localStorage.setItem('project-resource-db',JSON.stringify({version:1,settings:{warningDays:7},activity:[],staffingNeeds:[],projects:[{id:'p1',name:'视觉测试项目',priority:'P1 高',status:'视频制作中',ddl:'2099-12-31',overallProgress:60,assetProgress:100,videoProgress:40},{id:'p2',name:'历史电影',priority:'P2 中',status:'已完成',duration:'65 分钟'}],people:[{id:'u1',name:'测试导演',function:'导演',capacity:100,employmentStatus:'在岗'},{id:'u2',name:'满载动画师',position:'AI动画师',capacity:100,employmentStatus:'在岗'}],assignments:[{id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',stage:'统筹',allocation:50,status:'进行中'},{id:'a2',projectId:'p1',personId:'u2',role:'其它支持',stage:'其它',allocation:100,status:'进行中'},{id:'a3',projectId:'p2',personId:'u1',role:'项目负责人/导演',stage:'统筹',allocation:100,status:'已结束'}]}));
 
   await import(`${pathToFileURL(path.join(root, 'src/app.mjs')).href}?smoke=1`);
   assert.match(document.querySelector('#view-dashboard').textContent, /进行中项目/);
@@ -29,9 +29,17 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   assert.equal(document.querySelector('.project-title-line strong').getAttribute('title'),'视觉测试项目','完整项目名应保留在悬停提示中');
   document.querySelector('[data-open-project="p1"]').click();
   assert.ok(document.querySelector('.project-command'),'项目详情首屏应显示进度指挥区');
-  assert.equal(document.querySelectorAll('.team-role-card').length,5,'项目详情应重点显示五个核心岗位');
+  assert.equal(document.querySelectorAll('.team-role-card').length,6,'项目详情应显示五个核心岗位和可选编导岗位');
   assert.ok(document.querySelector('.project-info-collapse'),'项目基础资料应收纳在折叠区域');
-  document.querySelector('[data-close-modal]').click();
+  document.querySelector('[data-assign-role="资产制作人员"]').click();
+  assert.equal(document.querySelectorAll('.assignment-person-check').length,2,'项目岗位应支持一次多选人员');
+  document.querySelectorAll('.assignment-person-check').forEach(input=>{input.checked=true;input.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  document.querySelector('[name="allocation"]').value='10';
+  document.querySelector('#save-assignment').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  document.querySelector('#confirm-ok')?.click();
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(JSON.parse(localStorage.getItem('project-resource-db')).assignments.filter(item=>item.projectId==='p1'&&item.role==='资产制作人员').length,2);
 
   document.querySelector('[data-view="people"]').click();
   assert.ok(document.querySelector('.person-card'),'人员库应使用能力与产能卡片');
@@ -41,6 +49,8 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   document.querySelector('[data-people-metric="all"]').click();
   document.querySelector('.person-card').click();
   assert.ok(document.querySelector('.person-detail-summary'),'点击人员应显示产能概览');
+  assert.match(document.querySelector('.work-history-section:last-child').textContent,/历史电影/,'人员详情应把完结项目列入历史记录');
+  assert.match(document.querySelector('.work-history-section:last-child').textContent,/负责整片 65 分钟/,'导演历史产出应默认使用整片时长');
   document.querySelector('#person-detail-edit').click();
   assert.ok(document.querySelector('.person-profile-form'),'人员编辑应使用完整能力档案表单');
   assert.match(document.querySelector('[name="releaseDate"]').closest('.field').textContent,/仅作排期参考/);
@@ -67,7 +77,15 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   document.querySelector('#quick-project').click();
   const form = document.querySelector('#project-form');
   assert.ok(form, '新建项目弹窗应出现');
+  assert.equal(form.elements.projectAddress,undefined,'项目地址字段应被删除');
   form.elements.name.value = '界面测试项目';
+  form.elements.projectType.value = '测试项目';
+  form.elements.projectType.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  assert.equal(document.querySelector('[data-project-field="testResult"]').hidden,false,'测试项目应显示测试结果');
+  form.elements.productionRequirement.value = '剧集制作';
+  form.elements.productionRequirement.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  assert.equal(document.querySelector('[data-project-field="episodeCount"]').hidden,false,'剧集制作应填写集数');
+  form.elements.episodeCount.value='12';
   form.elements.status.value = '制作中';
   form.elements.overallProgress.value = '25';
   document.querySelector('#save-project').click();

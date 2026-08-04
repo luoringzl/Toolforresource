@@ -2,10 +2,16 @@ export const PROJECT_STATUSES = ['待启动', '制作中', '资产制作中', '�
 export const ACTIVE_PROJECT_STATUSES = ['制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'];
 export const COMPLETED_PROJECT_STATUSES = ['已完成', '已完结', '已取消'];
 
+export const PROJECT_TYPES = ['测试项目', '正式合作项目'];
+export const PRODUCTION_REQUIREMENTS = ['片段制作', '剧集制作', '全片制作'];
+export const SETTLEMENT_STATUSES = ['损稿', '客户撤稿', '正常结算', '部分结算'];
+export const TEST_RESULTS = ['测试通过', '测试未通过', '转正式合作', '待定'];
+
 export const REQUIRED_PROJECT_ROLES = [
-  { key: 'director', label: '项目负责人/导演', function: '导演', stage: '统筹' },
+  { key: 'director', label: '项目负责人/导演', function: '导演', stage: '统筹', required: true },
+  { key: 'writerDirector', label: '编导', function: '编导', stage: '剧本', required: false },
   { key: 'pm', label: 'PM', function: '项目经理 PM', stage: '统筹' },
-  { key: 'art', label: '美术监制', function: '美术监制', stage: '美术' },
+  { key: 'art', label: '美术监制', function: '美术监制', stage: '美术', required: 'withoutDirector' },
   { key: 'video', label: '视频制作人员', function: '视频制作', stage: '视频' },
   { key: 'asset', label: '资产制作人员', function: '资产制作', stage: '资产' }
 ];
@@ -26,13 +32,21 @@ export const DEFAULT_DICTIONARIES = {
   positions: POSITIONS,
   skills: SKILL_OPTIONS,
   employmentStatuses: EMPLOYMENT_STATUSES,
-  projectStatuses: PROJECT_STATUSES
+  projectStatuses: PROJECT_STATUSES,
+  projectTypes: PROJECT_TYPES,
+  productionRequirements: PRODUCTION_REQUIREMENTS,
+  settlementStatuses: SETTLEMENT_STATUSES,
+  testResults: TEST_RESULTS
 };
 
 export const projectFields = [
   ['name', '项目名称', 'text', true], ['shortName', '项目简称', 'text'],
   ['priority', '优先级', 'select', false, ['P0 紧急', 'P1 高', 'P2 中', 'P3 低']],
-  ['scope', '集数 / 场 / 镜头', 'text'], ['duration', '总时长', 'text'],
+  ['projectType', '项目类型', 'select', false, PROJECT_TYPES],
+  ['productionRequirement', '制作要求', 'select', false, PRODUCTION_REQUIREMENTS],
+  ['sceneCount', '场数', 'number'], ['episodeCount', '集数', 'number'], ['duration', '总时长', 'text'],
+  ['settlementStatus', '结算情况', 'select', false, SETTLEMENT_STATUSES],
+  ['testResult', '测试结果', 'select', false, TEST_RESULTS],
   ['status', '项目状态', 'select', false, PROJECT_STATUSES],
   ['orderDate', '接单时间', 'date'], ['ddl', 'DDL', 'date'],
   ['clientCompany', '客户企业', 'text'], ['clientContact', '客户对接人', 'text'],
@@ -46,7 +60,7 @@ export const projectFields = [
   ['assetProgress', '资产制作进度（%）', 'number'], ['assetCompletionDate', '资产完成日期', 'date'],
   ['videoProgress', '视频制作进度（%）', 'number'], ['videoCompletionDate', '视频制作完成日期', 'date'],
   ['internalReview', '内审情况', 'select', false, ['未开始', '待审', '通过', '需修改']],
-  ['svn', 'SVN', 'text'], ['projectAddress', '项目地址', 'text'], ['formLink', '项目表单链接', 'text'],
+  ['svn', 'SVN', 'text'], ['formLink', '项目表单链接', 'text'],
   ['riskNote', '风险 / 阻塞', 'textarea'], ['notes', '备注', 'textarea']
 ];
 
@@ -58,9 +72,9 @@ export const peopleFields = [
 ];
 
 export const projectHeaders = [
-  '项目名称','项目简称','优先级','集数/场/镜头','总时长','项目概述','引入人员','接单时间','客户企业','客户对接人','DDL','项目状态',
-  '剧本','故事大纲','人物小传','目标参考','验收标准','美术参考','项目总进度','本月完成进度','上月进度','项目负责人/导演','PM','美术监制',
-  '视频制作人员','资产制作人员','资产制作进度','资产完成日期','视频制作进度','视频制作完成日期','内审情况','其它支持','SVN','项目地址','项目表单链接','风险/阻塞','备注'
+  '项目名称','项目简称','优先级','项目类型','制作要求','场数','集数','总时长','结算情况','测试结果','项目概述','引入人员','接单时间','客户企业','客户对接人','DDL','项目状态',
+  '剧本','故事大纲','人物小传','目标参考','验收标准','美术参考','项目总进度','本月完成进度','上月进度','项目负责人/导演','编导','PM','美术监制',
+  '视频制作人员','资产制作人员','资产制作进度','资产完成日期','视频制作进度','视频制作完成日期','内审情况','其它支持','SVN','项目表单链接','风险/阻塞','备注'
 ];
 
 export const peopleHeaders = [
@@ -72,7 +86,7 @@ export function uid(prefix = 'id') {
 }
 
 export function emptyDatabase() {
-  return { version: 3, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
+  return { version: 4, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
 }
 
 export function clampPercent(value) {
@@ -124,8 +138,8 @@ export function parseProductionCapabilities(value) {
 
 export function parseProjectAllocations(value) {
   return String(value || '').split(/[、；;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
-    const [name, allocation, role, endDate] = item.split(/[|｜]/).map(part => part.trim());
-    return { name, allocation:Number(allocation || 0), role:role || '', endDate:endDate || '' };
+    const [name, allocation, role, endDate, assetCreated, assetOptimized, videoMinutes, highDifficultyMinutes, actualOutputNote] = item.split(/[|｜]/).map(part => part.trim());
+    return { name, allocation:Number(allocation || 0), role:role || '', endDate:endDate || '', assetCreated:assetCreated||'', assetOptimized:assetOptimized||'', videoMinutes:videoMinutes||'', highDifficultyMinutes:highDifficultyMinutes||'', actualOutputNote:actualOutputNote||'' };
   });
 }
 
@@ -154,13 +168,21 @@ export function migratePerson(person = {}) {
 export function migrateDatabase(data = {}) {
   const base = emptyDatabase();
   const settings = data.settings || {};
-  return { ...base, ...data, version:3, projects:data.projects || [], assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
+  const projects=(data.projects || []).map(project=>({
+    ...project,
+    projectType:project.projectType || '正式合作项目',
+    productionRequirement:project.productionRequirement || '',
+    sceneCount:project.sceneCount ?? '', episodeCount:project.episodeCount ?? '',
+    settlementStatus:project.settlementStatus || '', testResult:project.testResult || ''
+  }));
+  return { ...base, ...data, version:4, projects, assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
 }
 
 export function assignmentRoleKey(assignment = {}) {
   const role = String(assignment.role || '').replace(/\s+/g, '');
   const stage = String(assignment.stage || '');
   if (role.includes('导演') || role.includes('项目负责人')) return 'director';
+  if (role.includes('编导')) return 'writerDirector';
   if (role.toUpperCase() === 'PM' || role.includes('项目经理')) return 'pm';
   if (role.includes('美术监制')) return 'art';
   if (role.includes('视频') || stage === '视频') return 'video';
@@ -223,6 +245,36 @@ export function personWorkloadBreakdown(db, personId, today = new Date().toISOSt
   return [...ai, ...external];
 }
 
+export function assignmentOutputSummary(db, assignment = {}) {
+  const project=db.projects.find(item=>item.id===assignment.projectId);
+  const roleKey=assignmentRoleKey(assignment);
+  const parts=[];
+  if(roleKey==='asset'){
+    if(assignment.assetCreated!==''&&assignment.assetCreated!=null)parts.push(`资产制作 ${Number(assignment.assetCreated||0)} 个`);
+    if(assignment.assetOptimized!==''&&assignment.assetOptimized!=null)parts.push(`资产优化 ${Number(assignment.assetOptimized||0)} 个`);
+  }else if(roleKey==='video'){
+    if(assignment.videoMinutes!==''&&assignment.videoMinutes!=null)parts.push(`视频制作 ${Number(assignment.videoMinutes||0)} 分钟`);
+    if(assignment.highDifficultyMinutes!==''&&assignment.highDifficultyMinutes!=null)parts.push(`高难度镜头 ${Number(assignment.highDifficultyMinutes||0)} 分钟`);
+  }else if(roleKey==='director'){
+    parts.push(`负责整片${project?.duration?` ${project.duration}`:'（总时长未填写）'}`);
+  }
+  if(assignment.actualOutputNote)parts.push(assignment.actualOutputNote);
+  return parts.join('；');
+}
+
+export function personProjectGroups(db, personId, today = new Date().toISOString().slice(0, 10)) {
+  const groups=new Map();
+  for(const item of personWorkloadBreakdown(db,personId,today)){
+    const key=item.source==='AI项目库'?`ai:${item.projectId}`:`external:${item.department||''}:${item.name||item.id}`;
+    if(!groups.has(key))groups.set(key,{key,source:item.source,projectId:item.projectId||'',name:item.name,department:item.department,active:false,roles:[],assignments:[],allocation:0,outputs:[]});
+    const group=groups.get(key);group.active=group.active||item.active;group.assignments.push(item);
+    if(item.role&&!group.roles.includes(item.role))group.roles.push(item.role);
+    if(item.active)group.allocation+=Number(item.allocation||0);
+    const output=assignmentOutputSummary(db,item);if(output&&!group.outputs.includes(output))group.outputs.push(output);
+  }
+  return [...groups.values()].sort((a,b)=>Number(b.active)-Number(a.active)||String(a.name||'').localeCompare(String(b.name||''),'zh-CN'));
+}
+
 export function personMatchesRole(person, role = '') {
   const query = String(role || '').replace(/[\s/]+/g, '');
   if (!query) return false;
@@ -230,7 +282,7 @@ export function personMatchesRole(person, role = '') {
   if (haystack.includes(query) || query.includes(String(person?.position || '').replace(/[\s/]+/g, ''))) return true;
   const aliases = {
     '项目负责人/导演':['导演','项目管理'], '视频制作人员':['AI动画师','AI视频制作','AI后期','剪辑'],
-    '资产制作人员':['CG资产师','AI资产制作','3D模型'], 'PM':['项目经理','项目管理','制片'], '美术监制':['美术监制','UE场景设计师']
+    '资产制作人员':['CG资产师','AI资产制作','3D模型'], 'PM':['项目经理','项目管理','制片'], '美术监制':['美术监制','UE场景设计师'], '编导':['导演','剧本分析','分镜设计']
   };
   return (aliases[role] || []).some(value => haystack.includes(value));
 }
@@ -241,16 +293,18 @@ export function projectAssignments(db, projectId) {
 
 export function projectRoleCoverage(db, projectId) {
   const assignments = projectAssignments(db, projectId);
+  const directorCovered=assignments.some(item=>assignmentRoleKey(item)==='director');
   return REQUIRED_PROJECT_ROLES.map(role => {
     const matched = assignments.filter(item => assignmentRoleKey(item) === role.key);
-    return { ...role, assignments: matched, count: matched.length, covered: matched.length > 0 };
+    const required=role.required==='withoutDirector'?!directorCovered:role.required!==false;
+    return { ...role, required, optional:!required, assignments: matched, count: matched.length, covered: matched.length > 0 };
   });
 }
 
 export function projectStaffingWarnings(db, project) {
   if (!project) return [];
   const coverage = projectRoleCoverage(db, project.id);
-  const missing = coverage.filter(item => !item.covered);
+  const missing = coverage.filter(item => item.required && !item.covered);
   const warnings = [];
   if (project.status === '资产制作中' && missing.some(item => item.key === 'asset')) {
     warnings.push({ key: 'asset', critical: true, text: '当前处于资产制作中，请立即安排资产制作人员' });
@@ -313,7 +367,7 @@ export function dashboardMetrics(db) {
   const availablePeople = db.people.filter(item => item.employmentStatus !== '离岗' && personAvailable(db, item) > 0);
   const averageProgress = active.length ? Math.round(active.reduce((sum, item) => sum + clampPercent(item.overallProgress), 0) / active.length) : 0;
   const openNeeds = db.staffingNeeds.filter(item => item.status !== '已满足' && needAllocated(db, item) < Number(item.requiredCapacity || 0));
-  const coreRoleGaps = db.projects.filter(item => !['已完成', '已取消'].includes(item.status)).reduce((total, project) => total + projectRoleCoverage(db, project.id).filter(role => !role.covered).length, 0);
+  const coreRoleGaps = db.projects.filter(item => !['已完成', '已取消'].includes(item.status)).reduce((total, project) => total + projectRoleCoverage(db, project.id).filter(role => role.required && !role.covered).length, 0);
   return { active: active.length, risky: risky.length, availablePeople: availablePeople.length, averageProgress, openNeeds: openNeeds.length + coreRoleGaps };
 }
 
@@ -330,12 +384,13 @@ export function uniqueName(base, existingNames) {
 
 export function normalizeProjectRow(row) {
   return {
-    name: row['项目名称'], shortName: row['项目简称'], priority: row['优先级'] || 'P2 中', scope: row['集数/场/镜头'], duration: row['总时长'],
+    name: row['项目名称'], shortName: row['项目简称'], priority: row['优先级'] || 'P2 中', projectType:row['项目类型']||'正式合作项目', productionRequirement:row['制作要求']||'',
+    sceneCount:row['场数']??'', episodeCount:row['集数']??'', scope: row['集数/场/镜头'], duration: row['总时长'], settlementStatus:row['结算情况']||'', testResult:row['测试结果']||'',
     overview: row['项目概述'], orderDate: row['接单时间'], clientCompany: row['客户企业'], clientContact: row['客户对接人'], ddl: row['DDL'], status: row['项目状态'] || '待启动',
     script: row['剧本'], outline: row['故事大纲'], biographies: row['人物小传'], targetReference: row['目标参考'], acceptanceCriteria: row['验收标准'], artReference: row['美术参考'],
     overallProgress: clampPercent(row['项目总进度']), currentMonthProgress: clampPercent(row['本月完成进度']), previousMonthProgress: clampPercent(row['上月进度']),
     assetProgress: clampPercent(row['资产制作进度']), assetCompletionDate: row['资产完成日期'], videoProgress: clampPercent(row['视频制作进度']), videoCompletionDate: row['视频制作完成日期'],
-    internalReview: row['内审情况'] || '未开始', svn: row['SVN'], projectAddress: row['项目地址'], formLink: row['项目表单链接'], riskNote: row['风险/阻塞'], notes: row['备注']
+    internalReview: row['内审情况'] || '未开始', svn: row['SVN'], formLink: row['项目表单链接'], riskNote: row['风险/阻塞'], notes: row['备注']
   };
 }
 
@@ -355,7 +410,7 @@ export function normalizePersonRow(row) {
 
 export function roleColumns(row) {
   return [
-    ['项目负责人/导演', '导演', '项目负责人 / 导演'], ['PM', '项目经理 PM', 'PM'], ['美术监制', '美术监制', '美术监制'],
+    ['项目负责人/导演', '导演', '项目负责人 / 导演'], ['编导', '编导', '编导'], ['PM', '项目经理 PM', 'PM'], ['美术监制', '美术监制', '美术监制'],
     ['视频制作人员', '视频制作', '视频制作'], ['资产制作人员', '资产制作', '资产制作'], ['其它支持', '其它', '其它支持'], ['引入人员', '其它', '引入人员']
   ].flatMap(([column, fallbackFunction, role]) => splitNames(row[column]).map(name => ({ name, fallbackFunction, role })));
 }

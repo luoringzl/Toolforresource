@@ -4,7 +4,8 @@ import {
   emptyDatabase, personUsage, personAvailable, projectHealth, needAllocated,
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
   assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
-  personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects
+  personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects,
+  personProjectGroups, assignmentOutputSummary
 } from '../src/core.mjs';
 
 function fixture() {
@@ -52,7 +53,7 @@ test('资产制作完成后释放资产人员，但导演和视频人员直到�
   assert.equal(personUsage(db,'video','2026-07-16'),0);
 });
 
-test('五个核心岗位支持多人并识别阶段性缺员提醒', () => {
+test('项目岗位支持多人并识别阶段性缺员提醒', () => {
   const db=emptyDatabase();
   db.projects.push({id:'p1',name:'缺员项目',status:'视频制作中'});
   db.people.push({id:'u1',name:'导演甲'},{id:'u2',name:'导演乙'});
@@ -66,6 +67,17 @@ test('五个核心岗位支持多人并识别阶段性缺员提醒', () => {
   const warnings=projectStaffingWarnings(db,db.projects[0]);
   assert.ok(warnings.some(item=>item.critical&&item.text.includes('视频制作人员')));
   assert.ok(warnings.some(item=>item.text.includes('PM')));
+});
+
+test('有导演时美术监制可缺省，编导始终为可选岗位', () => {
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'导演项目',status:'制作中'});
+  db.assignments.push({id:'a1',projectId:'p1',personId:'u1',role:'项目负责人/导演',status:'进行中'});
+  const coverage=projectRoleCoverage(db,'p1');
+  assert.equal(coverage.find(item=>item.key==='art').required,false);
+  assert.equal(coverage.find(item=>item.key==='writerDirector').required,false);
+  const warning=projectStaffingWarnings(db,db.projects[0]).map(item=>item.text).join('；');
+  assert.doesNotMatch(warning,/美术监制|编导/);
 });
 
 test('用人需求自动计算已分配与缺口', () => {
@@ -85,9 +97,12 @@ test('项目健康度识别风险备注与逾期', () => {
 });
 
 test('导入行被标准化，百分比被限制在 0-100', () => {
-  const project=normalizeProjectRow({'项目名称':'A','项目总进度':130,'项目状态':'制作中'});
+  const project=normalizeProjectRow({'项目名称':'A','项目总进度':130,'项目状态':'制作中','项目类型':'测试项目','制作要求':'剧集制作','集数':24,'测试结果':'测试通过','结算情况':'部分结算'});
   const person=normalizePersonRow({'姓名':'B','标准产能':80,'职能':'导演'});
   assert.equal(project.overallProgress,100);
+  assert.equal(project.episodeCount,24);
+  assert.equal(project.projectType,'测试项目');
+  assert.equal(project.testResult,'测试通过');
   assert.equal(person.capacity,80);
 });
 
@@ -133,10 +148,31 @@ test('项目默认按进行中、待启动、暂停、已完结分组，并按�
 
 test('旧版人员资料自动迁移为多职位与技能等级模型', () => {
   const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
-  assert.equal(db.version,3);
+  assert.equal(db.version,4);
   assert.equal(db.people[0].position,'AI动画师');
   assert.deepEqual(db.people[0].positions,['AI动画师']);
   assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);
+});
+
+test('同一人员在同一项目的多个岗位合并展示，完结项目记录实际产出', () => {
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'进行中项目',status:'制作中'},{id:'p2',name:'历史影片',status:'已完成',duration:'65 分钟'});
+  db.people.push({id:'u1',name:'复合人员',capacity:100,employmentStatus:'在岗'});
+  db.assignments.push(
+    {id:'a1',projectId:'p1',personId:'u1',role:'编导',allocation:20,status:'进行中'},
+    {id:'a2',projectId:'p1',personId:'u1',role:'视频制作人员',allocation:30,status:'进行中'},
+    {id:'a3',projectId:'p2',personId:'u1',role:'资产制作人员',assetCreated:12,assetOptimized:4,status:'已结束'},
+    {id:'a4',projectId:'p2',personId:'u1',role:'项目负责人/导演',status:'已结束'}
+  );
+  const groups=personProjectGroups(db,'u1','2026-08-04');
+  assert.equal(groups.length,2);
+  assert.deepEqual(groups.find(item=>item.projectId==='p1').roles,['编导','视频制作人员']);
+  assert.equal(groups.find(item=>item.projectId==='p1').allocation,50);
+  const history=groups.find(item=>item.projectId==='p2');
+  assert.equal(history.active,false);
+  assert.match(history.outputs.join('；'),/资产制作 12 个/);
+  assert.match(history.outputs.join('；'),/负责整片 65 分钟/);
+  assert.match(assignmentOutputSummary(db,{projectId:'p2',role:'视频制作人员',videoMinutes:3.5,highDifficultyMinutes:0.8}),/高难度镜头 0.8 分钟/);
 });
 
 test('职位支持多选，并可由任一职位匹配项目岗位', () => {
