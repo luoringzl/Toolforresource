@@ -5,7 +5,7 @@ import {
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
   assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
   personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects,
-  personProjectGroups, assignmentOutputSummary
+  personProjectGroups, assignmentOutputSummary, projectRequiresStaffing, rankedCandidates, personPositionMatchesRole, personSkillMatchesRole
 } from '../src/core.mjs';
 
 function fixture() {
@@ -25,10 +25,16 @@ test('人员产能由有效项目分工实时汇总', () => {
   assert.equal(personAvailable(db,db.people[0]),0);
 });
 
-test('已完成项目不继续占用人员产能', () => {
+test('已完成、已完结和已取消项目不继续占用人员产能或产生用人需求', () => {
   const db = fixture();
-  db.projects[0].status='已完成';
-  assert.equal(personUsage(db,'u1','2026-07-16'),0);
+  for(const status of ['已完成','已完结','已取消']){
+    db.projects[0].status=status;
+    assert.equal(personUsage(db,'u1','2026-07-16'),0);
+    assert.equal(projectRequiresStaffing(db.projects[0]),false);
+    assert.deepEqual(projectStaffingWarnings(db,db.projects[0]),[]);
+    assert.equal(projectRoleCoverage(db,'p1').filter(role=>role.required).length,0);
+    assert.equal(dashboardMetrics(db).openNeeds,0);
+  }
 });
 
 test('资产制作完成后释放资产人员，但导演和视频人员直到项目完成才释放', () => {
@@ -96,13 +102,17 @@ test('项目健康度识别风险备注与逾期', () => {
   assert.equal(projectHealth({status:'已完成'}).key,'done');
 });
 
-test('导入行被标准化，百分比被限制在 0-100', () => {
-  const project=normalizeProjectRow({'项目名称':'A','项目总进度':130,'项目状态':'制作中','项目类型':'测试项目','制作要求':'剧集制作','集数':24,'测试结果':'测试通过','结算情况':'部分结算'});
+test('导入行被标准化，启动时间被保留且测试结果仅属于测试项目', () => {
+  const project=normalizeProjectRow({'项目名称':'A','项目总进度':130,'项目状态':'制作中','项目类型':'测试项目','制作要求':'剧集制作','集数':24,'启动时间':'2026-08-01','测试结果':'测试通过','结算情况':'不结算'});
+  const formal=normalizeProjectRow({'项目名称':'B','项目类型':'正式合作项目','测试结果':'测试通过'});
   const person=normalizePersonRow({'姓名':'B','标准产能':80,'职能':'导演'});
   assert.equal(project.overallProgress,100);
   assert.equal(project.episodeCount,24);
   assert.equal(project.projectType,'测试项目');
   assert.equal(project.testResult,'测试通过');
+  assert.equal(project.startDate,'2026-08-01');
+  assert.equal(project.settlementStatus,'不结算');
+  assert.equal(formal.testResult,'');
   assert.equal(person.capacity,80);
 });
 
@@ -148,7 +158,7 @@ test('项目默认按进行中、待启动、暂停、已完结分组，并按�
 
 test('旧版人员资料自动迁移为多职位与技能等级模型', () => {
   const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
-  assert.equal(db.version,4);
+  assert.equal(db.version,5);
   assert.equal(db.people[0].position,'AI动画师');
   assert.deepEqual(db.people[0].positions,['AI动画师']);
   assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);
@@ -180,6 +190,31 @@ test('职位支持多选，并可由任一职位匹配项目岗位', () => {
   assert.deepEqual(person.positions,['导演','项目经理 / PM']);
   assert.equal(personMatchesRole(person,'导演'),true);
   assert.equal(personMatchesRole(person,'项目经理 PM'),true);
+});
+
+test('候选人员按职位加剩余产能、技能匹配、其它候选排序，并排除非在岗人员', () => {
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'视频项目',status:'视频制作中'});
+  db.people.push(
+    {id:'position',name:'职位匹配',position:'AI动画师',positions:['AI动画师'],capacity:100,employmentStatus:'在岗'},
+    {id:'skill',name:'技能匹配',position:'其它',positions:['其它'],skillProfiles:[{skill:'AI视频制作',level:'高级'}],capacity:100,employmentStatus:'在岗'},
+    {id:'full',name:'满载职位匹配',position:'AI动画师',positions:['AI动画师'],capacity:100,employmentStatus:'在岗'},
+    {id:'other',name:'其它候选',position:'商务',positions:['商务'],capacity:100,employmentStatus:'在岗'},
+    {id:'inactive',name:'异动人员',position:'AI动画师',positions:['AI动画师'],capacity:100,employmentStatus:'异动'}
+  );
+  db.assignments.push({id:'a1',projectId:'p1',personId:'full',role:'其它支持',allocation:100,status:'进行中'});
+  const ranked=rankedCandidates(db,'视频制作人员','2026-08-05');
+  assert.deepEqual(ranked.map(item=>item.person.id),['position','skill','full','other']);
+  assert.equal(ranked[0].positionMatch,true);
+  assert.equal(ranked[1].skillMatch,true);
+});
+
+test('PM和项目管理需求只把项目经理 PM 职位识别为匹配', () => {
+  const pm={position:'项目经理 / PM',positions:['项目经理 / PM'],employmentStatus:'在岗'};
+  const skillOnly={position:'导演',positions:['导演'],skillProfiles:[{skill:'项目管理',level:'专家'}],employmentStatus:'在岗'};
+  assert.equal(personPositionMatchesRole(pm,'PM'),true);
+  assert.equal(personSkillMatchesRole(skillOnly,'PM'),false);
+  assert.equal(personMatchesRole(skillOnly,'项目管理/PM'),false);
 });
 
 test('人员导入模板语法解析技能等级与分方向制作能力', () => {

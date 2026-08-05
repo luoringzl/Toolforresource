@@ -1,10 +1,11 @@
 export const PROJECT_STATUSES = ['待启动', '制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收', '暂停', '已完成', '已取消'];
 export const ACTIVE_PROJECT_STATUSES = ['制作中', '资产制作中', '资产制作完成', '视频制作中', '视频制作完成', '反馈修改中', '待验收'];
 export const COMPLETED_PROJECT_STATUSES = ['已完成', '已完结', '已取消'];
+export const NON_STAFFING_PROJECT_STATUSES = [...COMPLETED_PROJECT_STATUSES];
 
 export const PROJECT_TYPES = ['测试项目', '正式合作项目'];
 export const PRODUCTION_REQUIREMENTS = ['片段制作', '剧集制作', '全片制作'];
-export const SETTLEMENT_STATUSES = ['损稿', '客户撤稿', '正常结算', '部分结算'];
+export const SETTLEMENT_STATUSES = ['损稿', '客户撤稿', '正常结算', '部分结算', '不结算'];
 export const TEST_RESULTS = ['测试通过', '测试未通过', '转正式合作', '待定'];
 
 export const REQUIRED_PROJECT_ROLES = [
@@ -20,7 +21,7 @@ export const DEPARTMENTS = ['AI项目组', 'UE引擎组', 'CG资产组', '导演
 export const POSITIONS = ['总经理', '人事总监', '项目经理 / PM', 'AI动画师', '导演', 'UE蓝图动画师', 'UE场景设计师', 'AI后期', 'AI技术研究', 'CG资产师', '商务', '导演助理', '制片', '美术监制', '剪辑师', '技术支持', '其它'];
 export const SKILL_OPTIONS = ['AI视频制作', 'AI资产制作', 'UE蓝图开发', 'UE场景制作', 'AI后期', '剪辑', 'AI转绘', '3D模型', '3D动作', '3D特效', 'AI特效', '分镜设计', '剧本分析', '项目管理'];
 export const SKILL_LEVELS = ['专家', '高级', '中级', '初级', '学习中'];
-export const EMPLOYMENT_STATUSES = ['在岗', '请假', '异动', '停薪留岗', '外包', '离岗'];
+export const EMPLOYMENT_STATUSES = ['在岗', '请假', '异动', '停薪留岗', '外包', '离职', '离岗'];
 export const CAPABILITY_UNIT_SUGGESTIONS = {
   'AI视频制作': '分钟/天', 'AI资产制作': '张/天', 'UE蓝图开发': '天/条C级蓝图', 'UE场景制作': '场景/周',
   'AI后期': '分钟/天', '剪辑': '分钟/天', 'AI转绘': '张/天', '3D模型': '个/周', '3D动作': '条/天',
@@ -48,7 +49,7 @@ export const projectFields = [
   ['settlementStatus', '结算情况', 'select', false, SETTLEMENT_STATUSES],
   ['testResult', '测试结果', 'select', false, TEST_RESULTS],
   ['status', '项目状态', 'select', false, PROJECT_STATUSES],
-  ['orderDate', '接单时间', 'date'], ['ddl', 'DDL', 'date'],
+  ['orderDate', '接单时间', 'date'], ['startDate', '启动时间', 'date'], ['ddl', 'DDL', 'date'],
   ['clientCompany', '客户企业', 'text'], ['clientContact', '客户对接人', 'text'],
   ['overview', '项目概述', 'textarea'], ['script', '剧本', 'textarea'],
   ['outline', '故事大纲', 'textarea'], ['biographies', '人物小传', 'textarea'],
@@ -72,7 +73,7 @@ export const peopleFields = [
 ];
 
 export const projectHeaders = [
-  '项目名称','项目简称','优先级','项目类型','制作要求','场数','集数','总时长','结算情况','测试结果','项目概述','引入人员','接单时间','客户企业','客户对接人','DDL','项目状态',
+  '项目名称','项目简称','优先级','项目类型','制作要求','场数','集数','总时长','结算情况','测试结果','项目概述','引入人员','接单时间','启动时间','客户企业','客户对接人','DDL','项目状态',
   '剧本','故事大纲','人物小传','目标参考','验收标准','美术参考','项目总进度','本月完成进度','上月进度','项目负责人/导演','编导','PM','美术监制',
   '视频制作人员','资产制作人员','资产制作进度','资产完成日期','视频制作进度','视频制作完成日期','内审情况','其它支持','SVN','项目表单链接','风险/阻塞','备注'
 ];
@@ -86,7 +87,7 @@ export function uid(prefix = 'id') {
 }
 
 export function emptyDatabase() {
-  return { version: 4, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
+  return { version: 5, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
 }
 
 export function clampPercent(value) {
@@ -173,9 +174,14 @@ export function migrateDatabase(data = {}) {
     projectType:project.projectType || '正式合作项目',
     productionRequirement:project.productionRequirement || '',
     sceneCount:project.sceneCount ?? '', episodeCount:project.episodeCount ?? '',
-    settlementStatus:project.settlementStatus || '', testResult:project.testResult || ''
+    settlementStatus:project.settlementStatus || '', startDate:project.startDate || '',
+    testResult:(project.projectType || '正式合作项目') === '测试项目' ? project.testResult || '' : ''
   }));
-  return { ...base, ...data, version:4, projects, assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
+  return { ...base, ...data, version:5, projects, assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
+}
+
+export function projectRequiresStaffing(project = {}) {
+  return Boolean(project) && !NON_STAFFING_PROJECT_STATUSES.includes(project.status);
 }
 
 export function assignmentRoleKey(assignment = {}) {
@@ -193,7 +199,7 @@ export function assignmentRoleKey(assignment = {}) {
 export function assignmentConsumesCapacity(db, assignment, today = new Date().toISOString().slice(0, 10)) {
   if (!assignment) return false;
   const project = db.projects.find(item => item.id === assignment.projectId);
-  if (!project || ['已完成', '已取消'].includes(project.status)) return false;
+  if (!project || !projectRequiresStaffing(project)) return false;
   const roleKey = assignmentRoleKey(assignment);
   // 导演和视频制作人员跟随项目全周期，只有项目完成/取消或移出项目才释放。
   if (['director', 'video'].includes(roleKey)) return true;
@@ -276,15 +282,62 @@ export function personProjectGroups(db, personId, today = new Date().toISOString
 }
 
 export function personMatchesRole(person, role = '') {
-  const query = String(role || '').replace(/[\s/]+/g, '');
-  if (!query) return false;
-  const haystack = [...personPositions(person), person?.function, ...(person?.skillProfiles || []).map(item => item.skill), person?.skills].join('|').replace(/[\s/]+/g, '');
-  if (haystack.includes(query) || query.includes(String(person?.position || '').replace(/[\s/]+/g, ''))) return true;
+  return personPositionMatchesRole(person, role) || personSkillMatchesRole(person, role);
+}
+
+function compactMatchText(value = '') {
+  return String(value || '').replace(/[\s/]+/g, '').toUpperCase();
+}
+
+function isPmRole(role = '') {
+  const query = compactMatchText(role);
+  return query === 'PM' || query.includes('项目经理') || query.includes('项目管理');
+}
+
+export function personPositionMatchesRole(person, role = '') {
+  if (!person || !role) return false;
+  const positions = personPositions(person);
+  if (isPmRole(role)) return positions.includes('项目经理 / PM');
   const aliases = {
-    '项目负责人/导演':['导演','项目管理'], '视频制作人员':['AI动画师','AI视频制作','AI后期','剪辑'],
-    '资产制作人员':['CG资产师','AI资产制作','3D模型'], 'PM':['项目经理','项目管理','制片'], '美术监制':['美术监制','UE场景设计师'], '编导':['导演','剧本分析','分镜设计']
+    '项目负责人/导演':['导演'], '导演':['导演'],
+    '视频制作人员':['AI动画师','AI后期','剪辑师'], '视频制作':['AI动画师','AI后期','剪辑师'],
+    '资产制作人员':['CG资产师'], '资产制作':['CG资产师'],
+    '美术监制':['美术监制','UE场景设计师'], '编导':['导演','导演助理']
   };
-  return (aliases[role] || []).some(value => haystack.includes(value));
+  const accepted = aliases[role] || [];
+  if (accepted.some(value => positions.includes(value))) return true;
+  const query = compactMatchText(role);
+  return positions.some(position => compactMatchText(position) === query);
+}
+
+export function personSkillMatchesRole(person, role = '') {
+  if (!person || !role || isPmRole(role)) return false;
+  const skills = [...(person.skillProfiles || []).map(item => item.skill), ...String(person.skills || '').split(/[、,，;；|\n]+/)].filter(Boolean);
+  const aliases = {
+    '项目负责人/导演':['项目管理'], '导演':['项目管理'],
+    '视频制作人员':['AI视频制作','AI后期','剪辑','AI转绘'], '视频制作':['AI视频制作','AI后期','剪辑','AI转绘'],
+    '资产制作人员':['AI资产制作','3D模型','3D动作','3D特效'], '资产制作':['AI资产制作','3D模型','3D动作','3D特效'],
+    '美术监制':['UE场景制作','AI资产制作'], '编导':['剧本分析','分镜设计']
+  };
+  const accepted = aliases[role] || [role];
+  return accepted.some(value => skills.some(skill => compactMatchText(skill).includes(compactMatchText(value))));
+}
+
+export function rankedCandidates(db, role = '', today = new Date().toISOString().slice(0, 10)) {
+  return db.people
+    .filter(person => isPersonSchedulable(person, today))
+    .map(person => {
+      const available = personAvailable(db, person, today);
+      const positionMatch = personPositionMatchesRole(person, role);
+      const skillMatch = personSkillMatchesRole(person, role);
+      let rank = 4;
+      if (positionMatch && available > 0) rank = 0;
+      else if (skillMatch) rank = 1;
+      else if (positionMatch) rank = 2;
+      else if (available > 0) rank = 3;
+      return { person, available, remaining:personRemainingCapacity(db, person, today), positionMatch, skillMatch, rank };
+    })
+    .sort((a, b) => a.rank - b.rank || b.available - a.available || String(a.person.name || '').localeCompare(String(b.person.name || ''), 'zh-CN'));
 }
 
 export function projectAssignments(db, projectId) {
@@ -293,16 +346,18 @@ export function projectAssignments(db, projectId) {
 
 export function projectRoleCoverage(db, projectId) {
   const assignments = projectAssignments(db, projectId);
+  const project = db.projects.find(item => item.id === projectId);
+  const requiresStaffing = projectRequiresStaffing(project);
   const directorCovered=assignments.some(item=>assignmentRoleKey(item)==='director');
   return REQUIRED_PROJECT_ROLES.map(role => {
     const matched = assignments.filter(item => assignmentRoleKey(item) === role.key);
-    const required=role.required==='withoutDirector'?!directorCovered:role.required!==false;
+    const required=requiresStaffing && (role.required==='withoutDirector'?!directorCovered:role.required!==false);
     return { ...role, required, optional:!required, assignments: matched, count: matched.length, covered: matched.length > 0 };
   });
 }
 
 export function projectStaffingWarnings(db, project) {
-  if (!project) return [];
+  if (!projectRequiresStaffing(project)) return [];
   const coverage = projectRoleCoverage(db, project.id);
   const missing = coverage.filter(item => item.required && !item.covered);
   const warnings = [];
@@ -364,10 +419,10 @@ export function needAllocated(db, need) {
 export function dashboardMetrics(db) {
   const active = db.projects.filter(item => ACTIVE_PROJECT_STATUSES.includes(item.status));
   const risky = active.filter(item => ['risk', 'overdue'].includes(projectHealth(item).key) || projectStaffingWarnings(db, item).some(warning => warning.critical));
-  const availablePeople = db.people.filter(item => item.employmentStatus !== '离岗' && personAvailable(db, item) > 0);
+  const availablePeople = db.people.filter(item => isPersonSchedulable(item) && personAvailable(db, item) > 0);
   const averageProgress = active.length ? Math.round(active.reduce((sum, item) => sum + clampPercent(item.overallProgress), 0) / active.length) : 0;
-  const openNeeds = db.staffingNeeds.filter(item => item.status !== '已满足' && needAllocated(db, item) < Number(item.requiredCapacity || 0));
-  const coreRoleGaps = db.projects.filter(item => !['已完成', '已取消'].includes(item.status)).reduce((total, project) => total + projectRoleCoverage(db, project.id).filter(role => role.required && !role.covered).length, 0);
+  const openNeeds = db.staffingNeeds.filter(item => projectRequiresStaffing(db.projects.find(project => project.id === item.projectId)) && item.status !== '已满足' && needAllocated(db, item) < Number(item.requiredCapacity || 0));
+  const coreRoleGaps = db.projects.filter(projectRequiresStaffing).reduce((total, project) => total + projectRoleCoverage(db, project.id).filter(role => role.required && !role.covered).length, 0);
   return { active: active.length, risky: risky.length, availablePeople: availablePeople.length, averageProgress, openNeeds: openNeeds.length + coreRoleGaps };
 }
 
@@ -383,10 +438,11 @@ export function uniqueName(base, existingNames) {
 }
 
 export function normalizeProjectRow(row) {
+  const projectType = row['项目类型'] || '正式合作项目';
   return {
-    name: row['项目名称'], shortName: row['项目简称'], priority: row['优先级'] || 'P2 中', projectType:row['项目类型']||'正式合作项目', productionRequirement:row['制作要求']||'',
-    sceneCount:row['场数']??'', episodeCount:row['集数']??'', scope: row['集数/场/镜头'], duration: row['总时长'], settlementStatus:row['结算情况']||'', testResult:row['测试结果']||'',
-    overview: row['项目概述'], orderDate: row['接单时间'], clientCompany: row['客户企业'], clientContact: row['客户对接人'], ddl: row['DDL'], status: row['项目状态'] || '待启动',
+    name: row['项目名称'], shortName: row['项目简称'], priority: row['优先级'] || 'P2 中', projectType, productionRequirement:row['制作要求']||'',
+    sceneCount:row['场数']??'', episodeCount:row['集数']??'', scope: row['集数/场/镜头'], duration: row['总时长'], settlementStatus:row['结算情况']||'', testResult:projectType==='测试项目'?row['测试结果']||'':'',
+    overview: row['项目概述'], orderDate: row['接单时间'], startDate:row['启动时间']||'', clientCompany: row['客户企业'], clientContact: row['客户对接人'], ddl: row['DDL'], status: row['项目状态'] || '待启动',
     script: row['剧本'], outline: row['故事大纲'], biographies: row['人物小传'], targetReference: row['目标参考'], acceptanceCriteria: row['验收标准'], artReference: row['美术参考'],
     overallProgress: clampPercent(row['项目总进度']), currentMonthProgress: clampPercent(row['本月完成进度']), previousMonthProgress: clampPercent(row['上月进度']),
     assetProgress: clampPercent(row['资产制作进度']), assetCompletionDate: row['资产完成日期'], videoProgress: clampPercent(row['视频制作进度']), videoCompletionDate: row['视频制作完成日期'],
