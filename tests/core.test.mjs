@@ -5,7 +5,7 @@ import {
   dashboardMetrics, normalizeProjectRow, normalizePersonRow, roleColumns,
   assignmentConsumesCapacity, projectRoleCoverage, projectStaffingWarnings,
   personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects,
-  personProjectGroups, assignmentOutputSummary, projectRequiresStaffing, rankedCandidates, personPositionMatchesRole, personSkillMatchesRole
+  personProjectGroups, assignmentOutputSummary, projectRequiresStaffing, rankedCandidates, personPositionMatchesRole, personSkillMatchesRole, comparePeopleDirectory
 } from '../src/core.mjs';
 
 function fixture() {
@@ -158,10 +158,28 @@ test('项目默认按进行中、待启动、暂停、已完结分组，并按�
 
 test('旧版人员资料自动迁移为多职位与技能等级模型', () => {
   const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
-  assert.equal(db.version,5);
+  assert.equal(db.version,6);
   assert.equal(db.people[0].position,'AI动画师');
   assert.deepEqual(db.people[0].positions,['AI动画师']);
   assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);
+});
+
+test('人员资料库优先显示 AI 部门在岗人员，其余按姓名拼音排序', () => {
+  const people=[
+    {id:'inactive-ai',name:'阿宁',department:'AI项目组',employmentStatus:'异动'},
+    {id:'other-z',name:'张三',department:'CG资产组',employmentStatus:'在岗'},
+    {id:'ai-w',name:'王五',department:'AI后期组',employmentStatus:'在岗'},
+    {id:'other-l',name:'李四',department:'导演组',employmentStatus:'在岗'},
+    {id:'ai-l',name:'李明',department:'AI项目组',employmentStatus:'在岗'}
+  ];
+  assert.deepEqual(people.sort(comparePeopleDirectory).map(item=>item.id),['ai-l','ai-w','inactive-ai','other-l','other-z']);
+});
+
+test('人员头像随 V6 数据迁移保留，非法图片数据会被清理', () => {
+  const avatarData='data:image/png;base64,aGVsbG8=';
+  const db=migrateDatabase({people:[{id:'u1',name:'有头像',avatarData},{id:'u2',name:'非法头像',avatarData:'file:///tmp/avatar.png'}]});
+  assert.equal(db.people[0].avatarData,avatarData);
+  assert.equal(db.people[1].avatarData,'');
 });
 
 test('同一人员在同一项目的多个岗位合并展示，完结项目记录实际产出', () => {
