@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   deleteAccount: (id) => ipcRenderer.invoke('auth:deleteAccount', id),
   loadData: () => ipcRenderer.invoke('db:load'),
   saveData: (data) => ipcRenderer.invoke('db:save', data),
+  updatePersonAvatar: (personId, avatarData) => ipcRenderer.invoke('person:updateAvatar', personId, avatarData),
   importSheet: (kind) => ipcRenderer.invoke('file:importSheet', kind),
   saveTemplate: (kind) => ipcRenderer.invoke('file:saveTemplate', kind),
   exportBackup: (data) => ipcRenderer.invoke('file:exportBackup', data),

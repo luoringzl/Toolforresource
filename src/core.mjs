@@ -87,7 +87,7 @@ export function uid(prefix = 'id') {
 }
 
 export function emptyDatabase() {
-  return { version: 5, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
+  return { version: 6, projects: [], people: [], assignments: [], staffingNeeds: [], activity: [], settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } } };
 }
 
 export function clampPercent(value) {
@@ -160,6 +160,7 @@ export function migratePerson(person = {}) {
     ...person,
     department: person.department || '未分配', positions, position, function: positionToLegacyFunction(positions),
     capacity: Number(person.capacity || 100), employmentStatus: person.employmentStatus || '在岗',
+    avatarData: /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(person.avatarData || '')) ? person.avatarData : '',
     skillProfiles, skills: skillProfiles.map(item => item.skill).join('、'),
     productionCapabilities: parseProductionCapabilities(person.productionCapabilities),
     externalAssignments: parseExternalAssignments(person.externalAssignments)
@@ -177,7 +178,7 @@ export function migrateDatabase(data = {}) {
     settlementStatus:project.settlementStatus || '', startDate:project.startDate || '',
     testResult:(project.projectType || '正式合作项目') === '测试项目' ? project.testResult || '' : ''
   }));
-  return { ...base, ...data, version:5, projects, assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
+  return { ...base, ...data, version:6, projects, assignments:data.assignments || [], staffingNeeds:data.staffingNeeds || [], activity:data.activity || [], settings:{...base.settings,...settings,dictionaries:{...base.settings.dictionaries,...(settings.dictionaries||{})},customFields:{...base.settings.customFields,...(settings.customFields||{})}}, people:(data.people || []).map(migratePerson) };
 }
 
 export function projectRequiresStaffing(project = {}) {
@@ -338,6 +339,15 @@ export function rankedCandidates(db, role = '', today = new Date().toISOString()
       return { person, available, remaining:personRemainingCapacity(db, person, today), positionMatch, skillMatch, rank };
     })
     .sort((a, b) => a.rank - b.rank || b.available - a.available || String(a.person.name || '').localeCompare(String(b.person.name || ''), 'zh-CN'));
+}
+
+const pinyinNameCollator = new Intl.Collator('zh-CN-u-co-pinyin', { sensitivity:'base', numeric:true });
+
+export function comparePeopleDirectory(a = {}, b = {}) {
+  const aiOnDuty = person => person.employmentStatus === '在岗' && /^(?:AI|人工智能)/i.test(String(person.department || '').trim());
+  const priorityDifference = Number(aiOnDuty(b)) - Number(aiOnDuty(a));
+  if (priorityDifference) return priorityDifference;
+  return pinyinNameCollator.compare(String(a.name || ''), String(b.name || ''));
 }
 
 export function projectAssignments(db, projectId) {

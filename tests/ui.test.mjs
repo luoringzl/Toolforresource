@@ -22,6 +22,10 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   await import(`${pathToFileURL(path.join(root, 'src/app.mjs')).href}?smoke=1`);
   assert.match(document.querySelector('#view-dashboard').textContent, /进行中项目/);
   assert.ok(document.querySelector('.project-control-item'),'工作台应突出项目进度控制');
+  assert.equal(document.querySelectorAll('[data-dashboard-detail]').length,5,'首页五个总览指标均应支持点击查看详情');
+  document.querySelector('[data-dashboard-detail="active"]').click();
+  assert.match(document.querySelector('.dashboard-detail-list').textContent,/视觉测试项目/,'进行中项目指标应显示对应项目详情');
+  document.querySelector('[data-close-modal]').click();
 
   document.querySelector('[data-view="projects"]').click();
   assert.ok(document.querySelector('.project-board-row'),'项目列表应使用进度与团队工作卡');
@@ -50,6 +54,7 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   document.querySelector('[data-view="people"]').click();
   assert.ok(document.querySelector('.person-card'),'人员库应使用能力与产能卡片');
   assert.equal(document.querySelectorAll('.person-card').length,3);
+  assert.ok(document.querySelector('.person-card .person-avatar svg'),'未上传图片时应显示按职位生成的默认头像');
   document.querySelector('[data-people-metric="available"]').click();
   assert.equal(document.querySelectorAll('.person-card').length,1,'可调度指标卡应直接筛选剩余产能人员');
   document.querySelector('[data-people-metric="all"]').click();
@@ -57,11 +62,14 @@ test('界面可启动，并能通过弹窗新建项目', async () => {
   assert.ok(document.querySelector('.person-detail-summary'),'点击人员应显示产能概览');
   assert.match(document.querySelector('.work-history-section:last-child').textContent,/历史电影/,'人员详情应把完结项目列入历史记录');
   assert.match(document.querySelector('.work-history-section:last-child').textContent,/负责整片 65 分钟/,'导演历史产出应默认使用整片时长');
+  assert.ok(document.querySelector('#person-avatar-edit'),'管理员可在人员详情修改头像');
   document.querySelector('#person-detail-edit').click();
   assert.ok(document.querySelector('.person-profile-form'),'人员编辑应使用完整能力档案表单');
   assert.match(document.querySelector('[name="releaseDate"]').closest('.field').textContent,/仅作排期参考/);
   assert.ok(document.querySelector('.skill-selector'),'人员编辑应支持技能多选和等级');
   assert.ok(document.querySelector('.position-selector'),'职位应支持多选');
+  assert.equal(document.querySelectorAll('#current-workload-editor .workload-edit-row').length,1,'人员编辑应单独展示正在进行中的项目');
+  assert.ok([...document.querySelectorAll('#history-workload-editor .workload-edit-row')].some(row=>row.querySelector('.work-project-id')?.value==='p2'),'人员编辑应把已完成项目放入历史记录区');
   document.querySelector('.skill-check').click();
   assert.ok(document.querySelector('.capability-edit-row'),'选中技能后应显示对应制作能力输入');
   document.querySelector('#add-workload').click();

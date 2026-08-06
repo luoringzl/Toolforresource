@@ -18,7 +18,7 @@ function authPath() {
 
 function emptyDatabase() {
   return {
-    version: 4,
+    version: 6,
     updatedAt: new Date().toISOString(),
     projects: [],
     people: [],
@@ -44,7 +44,7 @@ function loadDatabase() {
 
 function saveDatabase(data) {
   const file = databasePath();
-  const next = { ...data, version: 4, updatedAt: new Date().toISOString() };
+  const next = { ...data, version: 6, updatedAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(next, null, 2), 'utf8');
@@ -95,6 +95,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:load', () => { requireLogin(); return loadDatabase(); });
   ipcMain.handle('db:save', (_event, data) => { requireManager(); return saveDatabase(data); });
+  ipcMain.handle('person:updateAvatar', (_event, personId, avatarData = '') => {
+    requireLogin();
+    const user=authService.status().user;
+    if(!['admin','manager'].includes(user?.role)&&user?.personId!==personId)throw new Error('只能修改自己的头像');
+    const value=String(avatarData||'');
+    if(value&&!/^data:image\/(?:png|jpeg|webp);base64,/i.test(value))throw new Error('头像格式不受支持');
+    if(Buffer.byteLength(value,'utf8')>3*1024*1024)throw new Error('头像数据不能超过 3MB');
+    const data=loadDatabase();const person=data.people.find(item=>item.id===personId);if(!person)throw new Error('人员档案不存在');
+    person.avatarData=value;return saveDatabase(data);
+  });
 
   ipcMain.handle('file:importSheet', async (_event, kind) => {
     requireManager();
