@@ -134,7 +134,7 @@ function createAuthService(filePath) {
         if (!person?.id || !String(person.name || '').trim()) continue;
         let account = state.accounts.find(item => item.personId === person.id);
         const calculatedRole = roleForPerson(person);
-        const calculatedActive = person.employmentStatus === '在岗';
+        const calculatedActive = !person.employmentStatus || person.employmentStatus === '在岗';
         if (!account) {
           if (state.accounts.some(item => item.username === person.name)) continue;
           const password = temporaryPassword();
