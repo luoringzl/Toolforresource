@@ -14,6 +14,7 @@ function normalizePositions(person = {}) {
 }
 
 function roleForPerson(person = {}) {
+  if (person.employmentStatus && person.employmentStatus !== '在岗') return 'viewer';
   const positions = normalizePositions(person);
   return positions.some(value => value === '总经理' || value === '项目经理 / PM' || value.toUpperCase() === 'PM') ? 'manager' : 'viewer';
 }
@@ -51,10 +52,7 @@ function initialState() {
   const password = temporaryPassword();
   const account = makeAccount({ username:ADMIN_USERNAME, displayName:'高级管理员', role:'admin', password });
   account.temporaryPassword = password;
-  return {
-    version: 1,
-    accounts: [account]
-  };
+  return { version: 1, accounts: [account] };
 }
 
 function createAuthService(filePath) {
@@ -62,9 +60,7 @@ function createAuthService(filePath) {
 
   function load() {
     if (!fs.existsSync(filePath)) {
-      const state = initialState();
-      save(state);
-      return state;
+      const state = initialState(); save(state); return state;
     }
     try {
       const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -73,9 +69,7 @@ function createAuthService(filePath) {
     } catch (error) {
       const broken = `${filePath}.broken-${Date.now()}`;
       fs.copyFileSync(filePath, broken);
-      const state = initialState();
-      save(state);
-      return state;
+      const state = initialState(); save(state); return state;
     }
   }
 
@@ -90,9 +84,16 @@ function createAuthService(filePath) {
     if (currentUser?.role !== 'admin') throw new Error('仅高级管理员可执行此操作');
   }
 
+  function refreshCurrentUser(state) {
+    if (!currentUser) return;
+    currentUser = state.accounts.find(item => item.id === currentUser.id && item.active) || null;
+  }
+
   return {
     status() {
-      const bootstrap = load().accounts.find(item => item.username === ADMIN_USERNAME)?.temporaryPassword;
+      const state = load();
+      refreshCurrentUser(state);
+      const bootstrap = state.accounts.find(item => item.username === ADMIN_USERNAME)?.temporaryPassword;
       return { authenticated:Boolean(currentUser), user:publicAccount(currentUser), setupCredentials:!currentUser&&bootstrap?{username:ADMIN_USERNAME,password:bootstrap}:null };
     },
     login(username, password) {
@@ -107,7 +108,7 @@ function createAuthService(filePath) {
       if (String(newPassword || '').length < 6) return { ok:false, error:'新密码至少需要 6 位' };
       const state = load();
       const account = state.accounts.find(item => item.id === currentUser.id);
-      if (!account || !passwordMatches(oldPassword, account)) return { ok:false, error:'原密码错误' };
+      if (!account || !account.active || !passwordMatches(oldPassword, account)) return { ok:false, error:'原密码错误' };
       const encoded = hashPassword(newPassword);
       Object.assign(account, { salt:encoded.salt, passwordHash:encoded.hash, mustChangePassword:false, updatedAt:new Date().toISOString() });
       delete account.temporaryPassword;
@@ -117,24 +118,39 @@ function createAuthService(filePath) {
     syncPeople(people = []) {
       const state = load();
       const created = [];
+      const peopleById = new Map(people.filter(person => person?.id).map(person => [person.id, person]));
+
+      for (const account of state.accounts) {
+        if (!account.personId) continue;
+        const person = peopleById.get(account.personId);
+        if (!person) {
+          account.active = false;
+          account.role = 'viewer';
+          account.updatedAt = new Date().toISOString();
+        }
+      }
+
       for (const person of people) {
         if (!person?.id || !String(person.name || '').trim()) continue;
         let account = state.accounts.find(item => item.personId === person.id);
         const calculatedRole = roleForPerson(person);
+        const calculatedActive = person.employmentStatus === '在岗';
         if (!account) {
           if (state.accounts.some(item => item.username === person.name)) continue;
           const password = temporaryPassword();
           account = makeAccount({ username:person.name, displayName:person.name, personId:person.id, role:calculatedRole, password });
+          account.active = calculatedActive;
           account.temporaryPassword = password;
           state.accounts.push(account); created.push({ username:person.name, password });
         } else {
           account.username = person.name;
           account.displayName = person.name;
           account.role = account.roleOverride || calculatedRole;
+          account.active = calculatedActive;
           account.updatedAt = new Date().toISOString();
         }
-        if (currentUser?.id === account.id) currentUser = account;
       }
+      refreshCurrentUser(state);
       save(state);
       return { ok:true, created, accounts:currentUser?.role === 'admin' ? state.accounts.map(publicAccount) : undefined };
     },
@@ -160,7 +176,7 @@ function createAuthService(filePath) {
         account.active = protectedAdmin ? true : values.active !== false;
         account.updatedAt = new Date().toISOString();
       }
-      save(state);
+      save(state); refreshCurrentUser(state);
       return { ok:true, account:publicAccount(account) };
     },
     resetPassword(id, password = '') {
@@ -178,7 +194,7 @@ function createAuthService(filePath) {
       if (!account) return { ok:false, error:'账号不存在' };
       if (account.role === 'admin') return { ok:false, error:'高级管理员账号不能删除' };
       state.accounts = state.accounts.filter(item => item.id !== id);
-      save(state); return { ok:true };
+      save(state); refreshCurrentUser(state); return { ok:true };
     }
   };
 }
