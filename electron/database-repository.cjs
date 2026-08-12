@@ -21,6 +21,24 @@ function safeJsonRead(filePath){
 
 function ensureDirectory(directory){fs.mkdirSync(directory,{recursive:true});}
 
+function mergeDefaults(defaults,data){
+  const source=data&&typeof data==='object'?data:{};
+  const defaultSettings=defaults.settings||{};
+  const sourceSettings=source.settings||{};
+  return {
+    ...defaults,
+    ...source,
+    meta:{...(defaults.meta||{}),...(source.meta||{})},
+    settings:{
+      ...defaultSettings,
+      ...sourceSettings,
+      dictionaries:{...(defaultSettings.dictionaries||{}),...(sourceSettings.dictionaries||{})},
+      customFields:{...(defaultSettings.customFields||{}),...(sourceSettings.customFields||{})},
+      planning:{...(defaultSettings.planning||{}),...(sourceSettings.planning||{})}
+    }
+  };
+}
+
 function createDatabaseRepository({filePath,defaultsFactory,version,backupLimit=5,now=()=>new Date()}={}){
   if(!filePath)throw new Error('database repository 需要 filePath');
   if(typeof defaultsFactory!=='function')throw new Error('database repository 需要 defaultsFactory');
@@ -36,7 +54,7 @@ function createDatabaseRepository({filePath,defaultsFactory,version,backupLimit=
         const parsed=safeJsonRead(fullPath);
         return {name,path:fullPath,sizeBytes:stat.size,modifiedAt:stat.mtime.toISOString(),valid:parsed.ok,version:parsed.ok?Number(parsed.data?.version||0):0};
       })
-      .sort((a,b)=>b.modifiedAt.localeCompare(a.modifiedAt));
+      .sort((a,b)=>b.modifiedAt.localeCompare(a.modifiedAt)||b.name.localeCompare(a.name));
   }
 
   function pruneRecoveryPoints(){
@@ -51,32 +69,38 @@ function createDatabaseRepository({filePath,defaultsFactory,version,backupLimit=
     const parsed=safeJsonRead(filePath);
     if(!parsed.ok)return null;
     ensureDirectory(recoveryDirectory);
-    const destination=path.join(recoveryDirectory,`database-${timestamp(now())}.json`);
+    let destination=path.join(recoveryDirectory,`database-${timestamp(now())}.json`);
+    let sequence=1;
+    while(fs.existsSync(destination)){
+      destination=path.join(recoveryDirectory,`database-${timestamp(now())}-${sequence}.json`);
+      sequence+=1;
+    }
     fs.copyFileSync(filePath,destination);
     pruneRecoveryPoints();
     return destination;
   }
 
-  function quarantineBroken(error){
+  function quarantineBroken(){
     if(!fs.existsSync(filePath))return '';
     const broken=`${filePath}.broken-${timestamp(now())}`;
-    fs.copyFileSync(filePath,broken);
+    try{fs.renameSync(filePath,broken);}catch{fs.copyFileSync(filePath,broken);try{fs.unlinkSync(filePath);}catch{}}
     return broken;
   }
 
   function load(){
-    if(!fs.existsSync(filePath))return defaultsFactory();
+    const defaults=defaultsFactory();
+    if(!fs.existsSync(filePath))return defaults;
     const parsed=safeJsonRead(filePath);
-    if(parsed.ok)return {...defaultsFactory(),...parsed.data};
-    const broken=quarantineBroken(parsed.error);
-    return {...defaultsFactory(),recoveryWarning:`数据库读取失败，损坏文件已隔离为 ${broken}`};
+    if(parsed.ok)return mergeDefaults(defaults,parsed.data);
+    const broken=quarantineBroken();
+    return {...defaults,recoveryWarning:`数据库读取失败，损坏文件已隔离为 ${broken}`};
   }
 
   function save(data,{createRecovery=true}={}){
     ensureDirectory(path.dirname(filePath));
     const previousHash=fileHash(filePath);
     const recoveryPath=createRecovery?snapshotCurrent():null;
-    const next={...data,version,meta:{...(data?.meta||{}),schemaVersion:version},updatedAt:now().toISOString()};
+    const next={...mergeDefaults(defaultsFactory(),data),version,meta:{...(data?.meta||{}),schemaVersion:version},updatedAt:now().toISOString()};
     const temp=`${filePath}.tmp-${process.pid}-${Date.now()}`;
     try{
       fs.writeFileSync(temp,JSON.stringify(next,null,2),'utf8');
@@ -129,4 +153,4 @@ function createDatabaseRepository({filePath,defaultsFactory,version,backupLimit=
   return {load,save,diagnostics,recoveryPoints,restoreRecoveryPoint,clearRecoveryPoints,snapshotCurrent};
 }
 
-module.exports={createDatabaseRepository,fileHash,safeJsonRead};
+module.exports={createDatabaseRepository,fileHash,safeJsonRead,mergeDefaults};
