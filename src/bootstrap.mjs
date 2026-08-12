@@ -1,9 +1,10 @@
 import { createBrowserAPI } from './services/browser-api.mjs';
 import { localDateKey } from './utils/date.mjs';
 
-if (!window.desktopAPI) window.desktopAPI = createBrowserAPI();
+const hasDesktopAPI=Boolean(window.desktopAPI);
+if (!hasDesktopAPI) window.desktopAPI = createBrowserAPI();
 window.projectResourceRuntime = Object.freeze({
-  platform: window.desktopAPI ? (window.desktopAPI === globalThis.desktopAPI ? 'desktop' : 'browser') : 'browser',
+  platform: hasDesktopAPI ? 'desktop' : 'browser',
   localDateKey
 });
 
