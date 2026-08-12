@@ -86,6 +86,9 @@ test('单人评分提供风险与最早可用日期解释',()=>{
 
 test('用人需求可直接生成解释型候选列表',()=>{
   const db=fixture();
+  // 保留忙碌人员的 70% 产能压力，但不让旧版“同角色单需求”兼容逻辑把这条分工计入 n1。
+  db.assignments[0].role='其它支持';
+  db.assignments[0].stage='其它';
   const result=recommendForStaffingNeed(db,'n1',{startDate:'2026-08-12',days:20,limit:2});
   assert.equal(result.ok,true);
   assert.equal(result.gap,50);
