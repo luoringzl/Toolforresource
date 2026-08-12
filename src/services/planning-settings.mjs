@@ -1,8 +1,15 @@
 import { cloneDatabase } from '../schema/database.mjs';
 import { DEFAULT_PLANNING_SETTINGS, planningSettingsFromDatabase } from '../schema/migrations.mjs';
+import { normalizeCalendarDates } from '../planning/work-calendar.mjs';
 
 function normalizedList(value,{min,max}={}){
   return [...new Set((Array.isArray(value)?value:[]).map(Number).filter(item=>Number.isFinite(item)&&(min===undefined||item>=min)&&(max===undefined||item<=max)))].sort((a,b)=>a-b);
+}
+
+function invalidCalendarDates(values=[]){
+  const source=(Array.isArray(values)?values:[]).map(value=>String(value||'').trim()).filter(Boolean);
+  const normalized=new Set(normalizeCalendarDates(source));
+  return source.filter(value=>!normalized.has(value));
 }
 
 export function validatePlanningSettings(values={}){
@@ -11,6 +18,10 @@ export function validatePlanningSettings(values={}){
   if(!horizons.length)errors.push('至少需要一个预测周期');
   const workingDays=normalizedList(values.workingDays,{min:0,max:6});
   if(!workingDays.length)errors.push('至少需要一个工作日');
+  const invalidOff=invalidCalendarDates(values.nonWorkingDates);
+  const invalidWork=invalidCalendarDates(values.workingDateOverrides);
+  if(invalidOff.length)errors.push(`公司休息日格式无效：${invalidOff.join('、')}`);
+  if(invalidWork.length)errors.push(`特殊工作日格式无效：${invalidWork.join('、')}`);
   const maxPeople=Number(values.maxPeoplePerNeed);
   if(!Number.isFinite(maxPeople)||maxPeople<1||maxPeople>20)errors.push('单需求最大建议人数需在 1-20 之间');
   const maxChunk=Number(values.maxAllocationChunk);
@@ -39,6 +50,8 @@ export function updatePlanningSettings(database,patch={}){
     ...next,
     forecastHorizons:normalizedList(next.forecastHorizons,{min:1}),
     workingDays:normalizedList(next.workingDays,{min:0,max:6}),
+    nonWorkingDates:normalizeCalendarDates(next.nonWorkingDates),
+    workingDateOverrides:normalizeCalendarDates(next.workingDateOverrides),
     defaultForecastDays:Number(next.defaultForecastDays),
     defaultGanttDays:Number(next.defaultGanttDays),
     defaultGanttViewportDays:Number(next.defaultGanttViewportDays),
@@ -57,6 +70,7 @@ export function resetPlanningSettings(database){
   return updatePlanningSettings(database,{
     ...DEFAULT_PLANNING_SETTINGS,
     forecastHorizons:[...DEFAULT_PLANNING_SETTINGS.forecastHorizons],
-    workingDays:[...DEFAULT_PLANNING_SETTINGS.workingDays]
+    workingDays:[...DEFAULT_PLANNING_SETTINGS.workingDays],
+    nonWorkingDates:[],workingDateOverrides:[]
   });
 }
