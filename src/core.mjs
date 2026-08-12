@@ -1,5 +1,10 @@
 export * from './core-base.mjs';
 import * as base from './core-base.mjs';
+import { migrateToCurrentVersion } from './schema/migrations.mjs';
+
+export function emptyDatabase() {
+  return migrateToCurrentVersion(base.emptyDatabase());
+}
 
 export function localDateString(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
@@ -159,7 +164,7 @@ export function reconcileStaffingNeedStatuses(db) {
 }
 
 export function migrateDatabase(data = {}) {
-  const migrated = base.migrateDatabase(data);
+  const migrated = migrateToCurrentVersion(base.migrateDatabase(data));
   reconcileStaffingNeedStatuses(migrated);
   return migrated;
 }
