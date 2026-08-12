@@ -4,10 +4,12 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 const { createAuthService } = require('./auth.cjs');
 const { DB_VERSION, emptyDatabase } = require('./database-defaults.cjs');
+const { createDatabaseRepository } = require('./database-repository.cjs');
 
 const DB_NAME = 'project-resource-database.json';
 const AUTH_NAME = 'project-resource-auth.json';
 let authService;
+let databaseRepository;
 
 function databasePath() { return path.join(app.getPath('userData'), DB_NAME); }
 function authPath() { return path.join(app.getPath('userData'), AUTH_NAME); }
@@ -18,28 +20,8 @@ function localDateString(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function loadDatabase() {
-  const file = databasePath();
-  if (!fs.existsSync(file)) return emptyDatabase();
-  try {
-    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return { ...emptyDatabase(), ...value };
-  } catch (error) {
-    const broken = `${file}.broken-${Date.now()}`;
-    fs.copyFileSync(file, broken);
-    return { ...emptyDatabase(), recoveryWarning: `数据库读取失败，已备份为 ${broken}` };
-  }
-}
-
-function saveDatabase(data) {
-  const file = databasePath();
-  const next = { ...data, version: DB_VERSION, meta:{...(data.meta||{}),schemaVersion:DB_VERSION}, updatedAt: new Date().toISOString() };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(next, null, 2), 'utf8');
-  fs.renameSync(temp, file);
-  return { ok: true, updatedAt: next.updatedAt };
-}
+function loadDatabase() { return databaseRepository.load(); }
+function saveDatabase(data) { return databaseRepository.save(data); }
 
 function syncAccountsWithDatabase(data) {
   if (!authService) return;
@@ -62,6 +44,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  databaseRepository=createDatabaseRepository({filePath:databasePath(),defaultsFactory:emptyDatabase,version:DB_VERSION,backupLimit:5});
   authService = createAuthService(authPath());
   syncAccountsWithDatabase(loadDatabase());
   const requireLogin = () => { if (!authService.status().authenticated) throw new Error('请先登录'); };
@@ -79,7 +62,17 @@ app.whenReady().then(() => {
   ipcMain.handle('auth:deleteAccount', (_event, id) => { requireAdmin(); return authService.deleteAccount(id); });
 
   ipcMain.handle('db:load', () => { requireLogin(); const data=loadDatabase();syncAccountsWithDatabase(data);return data; });
-  ipcMain.handle('db:save', (_event, data) => { requireManager(); const result=saveDatabase(data);syncAccountsWithDatabase(data);return result; });
+  ipcMain.handle('db:save', (_event, data) => { requireManager(); const result=saveDatabase(data);if(result.ok)syncAccountsWithDatabase(data);return result; });
+  ipcMain.handle('db:diagnostics', () => { requireAdmin(); return databaseRepository.diagnostics(); });
+  ipcMain.handle('db:recoveryPoints', () => { requireAdmin(); return databaseRepository.recoveryPoints(); });
+  ipcMain.handle('db:restoreRecoveryPoint', (_event, name) => {
+    requireAdmin();
+    const result=databaseRepository.restoreRecoveryPoint(name);
+    if(result.ok)syncAccountsWithDatabase(loadDatabase());
+    return result;
+  });
+  ipcMain.handle('db:clearRecoveryPoints', () => { requireAdmin(); return databaseRepository.clearRecoveryPoints(); });
+
   ipcMain.handle('person:updateAvatar', (_event, personId, avatarData = '') => {
     requireLogin();
     const user=authService.status().user;
