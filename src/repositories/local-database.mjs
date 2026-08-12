@@ -1,4 +1,4 @@
-import { emptyDatabase } from '../core.mjs';
+import { normalizeDatabase } from '../schema/database.mjs';
 
 export const DEFAULT_DATABASE_KEY='project-resource-db';
 
@@ -7,21 +7,22 @@ export function createLocalDatabaseRepository({ storage = globalThis.localStorag
     load() {
       try {
         const raw=storage?.getItem(key);
-        return raw ? JSON.parse(raw) : emptyDatabase();
+        return normalizeDatabase(raw ? JSON.parse(raw) : null);
       } catch {
-        return emptyDatabase();
+        return normalizeDatabase(null);
       }
     },
     save(data) {
-      storage?.setItem(key, JSON.stringify(data));
-      return { ok:true };
+      const normalized=normalizeDatabase(data);
+      storage?.setItem(key, JSON.stringify(normalized));
+      return { ok:true, data:normalized };
     },
     update(mutator) {
       const data=this.load();
       const result=mutator(data);
       if (result?.ok === false) return result;
-      this.save(data);
-      return result ?? { ok:true, data };
+      const saved=this.save(data);
+      return result ?? { ok:true, data:saved.data };
     }
   };
 }
