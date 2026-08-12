@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBrowserAPI } from '../src/services/browser-api.mjs';
 import { createLocalDatabaseRepository } from '../src/repositories/local-database.mjs';
+import { CURRENT_DATABASE_VERSION } from '../src/schema/database.mjs';
 import { localDateKey, localDateTimeStamp } from '../src/utils/date.mjs';
 
 function memoryStorage(initial={}) {
@@ -19,7 +20,7 @@ test('V1.9 浏览器平台适配器提供与桌面端一致的基础数据接口
   assert.equal(auth.authenticated,true);
   assert.equal(auth.user.role,'admin');
   const empty=await api.loadData();
-  assert.equal(empty.version,6);
+  assert.equal(empty.version,CURRENT_DATABASE_VERSION);
   empty.projects.push({id:'p1',name:'模块化测试'});
   assert.equal((await api.saveData(empty)).ok,true);
   assert.equal((await api.loadData()).projects[0].name,'模块化测试');
@@ -50,7 +51,7 @@ test('Repository 独立负责数据库读写、事务更新与损坏数据回退
   assert.equal(repository.load().projects[0].name,'事务项目');
 
   const broken=createLocalDatabaseRepository({storage:memoryStorage({'project-resource-db':'{broken'})});
-  assert.equal(broken.load().version,6);
+  assert.equal(broken.load().version,CURRENT_DATABASE_VERSION);
   assert.deepEqual(broken.load().projects,[]);
 });
 

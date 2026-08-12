@@ -1,6 +1,7 @@
 import { emptyDatabase, migrateDatabase } from '../core.mjs';
+import { CURRENT_DATABASE_VERSION } from './migrations.mjs';
 
-export const CURRENT_DATABASE_VERSION = 6;
+export { CURRENT_DATABASE_VERSION } from './migrations.mjs';
 
 export function databaseShapeErrors(value) {
   const errors=[];
@@ -9,6 +10,7 @@ export function databaseShapeErrors(value) {
     if (!Array.isArray(value[key])) errors.push(`${key} 必须是数组`);
   }
   if (!value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings)) errors.push('settings 必须是对象');
+  if (!value.settings?.planning || typeof value.settings.planning !== 'object' || Array.isArray(value.settings.planning)) errors.push('settings.planning 必须是对象');
   return errors;
 }
 

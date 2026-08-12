@@ -7,6 +7,7 @@ import {
   personRemainingCapacity, personWorkloadBreakdown, personMatchesRole, migrateDatabase, parseSkillProfiles, parseProductionCapabilities, compareProjects,
   personProjectGroups, assignmentOutputSummary, projectRequiresStaffing, rankedCandidates, personPositionMatchesRole, personSkillMatchesRole, comparePeopleDirectory
 } from '../src/core.mjs';
+import { CURRENT_DATABASE_VERSION } from '../src/schema/database.mjs';
 
 function fixture() {
   const db = emptyDatabase();
@@ -158,7 +159,7 @@ test('项目默认按进行中、待启动、暂停、已完结分组，并按�
 
 test('旧版人员资料自动迁移为多职位与技能等级模型', () => {
   const db=migrateDatabase({people:[{id:'u1',name:'旧员工',function:'视频制作',skills:'AI视频制作、剪辑',skillLevel:'高级'}]});
-  assert.equal(db.version,6);
+  assert.equal(db.version,CURRENT_DATABASE_VERSION);
   assert.equal(db.people[0].position,'AI动画师');
   assert.deepEqual(db.people[0].positions,['AI动画师']);
   assert.deepEqual(db.people[0].skillProfiles,[{skill:'AI视频制作',level:'高级'},{skill:'剪辑',level:'高级'}]);

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const { createAuthService } = require('./auth.cjs');
+const { DB_VERSION, emptyDatabase } = require('./database-defaults.cjs');
 
 const DB_NAME = 'project-resource-database.json';
 const AUTH_NAME = 'project-resource-auth.json';
@@ -15,15 +16,6 @@ function localDateString(value = new Date()) {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-function emptyDatabase() {
-  return {
-    version: 6,
-    updatedAt: new Date().toISOString(),
-    projects: [], people: [], assignments: [], staffingNeeds: [], activity: [],
-    settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } }
-  };
 }
 
 function loadDatabase() {
@@ -41,7 +33,7 @@ function loadDatabase() {
 
 function saveDatabase(data) {
   const file = databasePath();
-  const next = { ...data, version: 6, updatedAt: new Date().toISOString() };
+  const next = { ...data, version: DB_VERSION, meta:{...(data.meta||{}),schemaVersion:DB_VERSION}, updatedAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(next, null, 2), 'utf8');
