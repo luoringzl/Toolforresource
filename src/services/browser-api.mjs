@@ -1,6 +1,7 @@
-import { emptyDatabase } from '../core.mjs';
+import { createLocalDatabaseRepository } from '../repositories/local-database.mjs';
 
 export function createBrowserAPI({ storage = globalThis.localStorage, documentRef = globalThis.document, urlRef = globalThis.URL } = {}) {
+  const repository=createLocalDatabaseRepository({storage});
   return {
     async authStatus() {
       return { authenticated:true, user:{ id:'local-admin', username:'admin', displayName:'高级管理员', role:'admin', mustChangePassword:false } };
@@ -13,21 +14,15 @@ export function createBrowserAPI({ storage = globalThis.localStorage, documentRe
     async saveAccount() { return {ok:true}; },
     async resetPassword() { return {ok:true,initialPassword:''}; },
     async deleteAccount() { return {ok:true}; },
-    async loadData() {
-      try { return JSON.parse(storage?.getItem('project-resource-db')) || emptyDatabase(); }
-      catch { return emptyDatabase(); }
-    },
-    async saveData(data) {
-      storage?.setItem('project-resource-db', JSON.stringify(data));
-      return { ok:true };
-    },
+    async loadData() { return repository.load(); },
+    async saveData(data) { return repository.save(data); },
     async updatePersonAvatar(personId, avatarData) {
-      const data=await this.loadData();
-      const person=data.people.find(item=>item.id===personId);
-      if(!person)return {ok:false,error:'人员档案不存在'};
-      person.avatarData=avatarData||'';
-      await this.saveData(data);
-      return {ok:true};
+      return repository.update(data=>{
+        const person=data.people.find(item=>item.id===personId);
+        if(!person)return {ok:false,error:'人员档案不存在'};
+        person.avatarData=avatarData||'';
+        return {ok:true};
+      });
     },
     async importSheet() { return { canceled:false, error:'请在 Windows 桌面软件中使用 Excel 导入功能' }; },
     async saveTemplate() { return { canceled:false, error:'请在 Windows 桌面软件中下载模板' }; },
