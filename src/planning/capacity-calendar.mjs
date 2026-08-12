@@ -1,5 +1,6 @@
 import { assignmentRoleKey, projectRequiresStaffing } from '../core.mjs';
 import { localDateKey } from '../utils/date.mjs';
+import { workCalendarFromDatabase, workDateStatus } from './work-calendar.mjs';
 
 function parseDateKey(value){
   const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -57,12 +58,19 @@ export function externalAssignmentActiveOnDate(assignment,dateKey){
   return true;
 }
 
-export function buildPersonCapacitySeries(db,person,{startDate=localDateKey(new Date()),days=30}={}){
+export function buildPersonCapacitySeries(db,person,{startDate=localDateKey(new Date()),days=30,workCalendar=workCalendarFromDatabase(db)}={}){
   const standardCapacity=Number(person?.capacity||100);
   const schedulable=person?.employmentStatus==='在岗';
   const internal=(db.assignments||[]).filter(item=>item.personId===person?.id);
   const external=person?.externalAssignments||[];
   return dateKeys(startDate,days).map(date=>{
+    const dateStatus=workDateStatus(date,workCalendar);
+    if(!dateStatus.working){
+      return {
+        date,personId:person?.id||'',standardCapacity,effectiveCapacity:0,usage:0,remaining:0,available:0,
+        overloaded:false,schedulable,workingDay:false,calendarSource:dateStatus.source,calendarLabel:dateStatus.label,sources:[]
+      };
+    }
     const sources=[];
     let usage=0;
     for(const assignment of internal){
@@ -82,15 +90,17 @@ export function buildPersonCapacitySeries(db,person,{startDate=localDateKey(new 
     const remaining=effectiveCapacity-usage;
     return {
       date,personId:person?.id||'',standardCapacity,effectiveCapacity,usage,
-      remaining,available:Math.max(0,remaining),overloaded:remaining<0,schedulable,sources
+      remaining,available:Math.max(0,remaining),overloaded:remaining<0,schedulable,
+      workingDay:true,calendarSource:dateStatus.source,calendarLabel:dateStatus.label,sources
     };
   });
 }
 
 export function buildCapacityCalendar(db,{startDate=localDateKey(new Date()),days=30}={}){
+  const workCalendar=workCalendarFromDatabase(db);
   return (db.people||[]).map(person=>({
     person,
-    days:buildPersonCapacitySeries(db,person,{startDate,days})
+    days:buildPersonCapacitySeries(db,person,{startDate,days,workCalendar})
   }));
 }
 
@@ -104,8 +114,9 @@ export function capacityConflicts(calendar){
 export function firstDateWithCapacity(series,requiredCapacity,{consecutiveDays=1}={}){
   const required=Math.max(0,Number(requiredCapacity||0));
   const streak=Math.max(1,Number(consecutiveDays||1));
-  for(let index=0;index<series.length;index++){
-    const window=series.slice(index,index+streak);
+  const workingSeries=(series||[]).filter(day=>day.workingDay!==false);
+  for(let index=0;index<workingSeries.length;index++){
+    const window=workingSeries.slice(index,index+streak);
     if(window.length<streak)break;
     if(window.every(day=>day.schedulable&&day.available>=required))return window[0].date;
   }
@@ -113,12 +124,18 @@ export function firstDateWithCapacity(series,requiredCapacity,{consecutiveDays=1
 }
 
 export function dailyTeamCapacity(db,{startDate=localDateKey(new Date()),days=30}={}){
-  const calendar=buildCapacityCalendar(db,{startDate,days});
+  const workCalendar=workCalendarFromDatabase(db);
+  const calendar=(db.people||[]).map(person=>({person,days:buildPersonCapacitySeries(db,person,{startDate,days,workCalendar})}));
   const keys=dateKeys(startDate,days);
   return keys.map((date,index)=>{
     const rows=calendar.map(entry=>entry.days[index]).filter(Boolean);
+    const dateStatus=workDateStatus(date,workCalendar);
     const capacity=rows.reduce((sum,row)=>sum+row.effectiveCapacity,0);
     const usage=rows.reduce((sum,row)=>sum+row.usage,0);
-    return {date,capacity,usage,remaining:capacity-usage,available:rows.reduce((sum,row)=>sum+row.available,0),overloadedPeople:rows.filter(row=>row.overloaded).length};
+    return {
+      date,capacity,usage,remaining:capacity-usage,available:rows.reduce((sum,row)=>sum+row.available,0),
+      overloadedPeople:rows.filter(row=>row.overloaded).length,workingDay:dateStatus.working,
+      calendarSource:dateStatus.source,calendarLabel:dateStatus.label
+    };
   });
 }
