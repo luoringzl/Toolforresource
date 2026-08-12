@@ -8,23 +8,20 @@ const DB_NAME = 'project-resource-database.json';
 const AUTH_NAME = 'project-resource-auth.json';
 let authService;
 
-function databasePath() {
-  return path.join(app.getPath('userData'), DB_NAME);
-}
-
-function authPath() {
-  return path.join(app.getPath('userData'), AUTH_NAME);
+function databasePath() { return path.join(app.getPath('userData'), DB_NAME); }
+function authPath() { return path.join(app.getPath('userData'), AUTH_NAME); }
+function localDateString(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function emptyDatabase() {
   return {
     version: 6,
     updatedAt: new Date().toISOString(),
-    projects: [],
-    people: [],
-    assignments: [],
-    staffingNeeds: [],
-    activity: [],
+    projects: [], people: [], assignments: [], staffingNeeds: [], activity: [],
     settings: { companyName: '', warningDays: 7, dictionaries: {}, customFields: { projects: [], people: [] } }
   };
 }
@@ -52,6 +49,11 @@ function saveDatabase(data) {
   return { ok: true, updatedAt: next.updatedAt };
 }
 
+function syncAccountsWithDatabase(data) {
+  if (!authService) return;
+  authService.syncPeople(Array.isArray(data?.people) ? data.people : []);
+}
+
 function workbookRows(filePath) {
   const workbook = XLSX.readFile(filePath, { cellDates: false });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -60,25 +62,16 @@ function workbookRows(filePath) {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1500,
-    height: 920,
-    minWidth: 1120,
-    minHeight: 720,
-    backgroundColor: '#f4f7f8',
-    title: '项目人员调度台',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
+    width: 1500, height: 920, minWidth: 1120, minHeight: 720,
+    backgroundColor: '#f4f7f8', title: '项目人员调度台', autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   win.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
 }
 
 app.whenReady().then(() => {
   authService = createAuthService(authPath());
+  syncAccountsWithDatabase(loadDatabase());
   const requireLogin = () => { if (!authService.status().authenticated) throw new Error('请先登录'); };
   const requireManager = () => { const role=authService.status().user?.role;if(!['admin','manager'].includes(role))throw new Error('当前账号只有查看权限'); };
   const requireAdmin = () => { if(authService.status().user?.role!=='admin')throw new Error('仅高级管理员可执行此操作'); };
@@ -93,8 +86,8 @@ app.whenReady().then(() => {
   ipcMain.handle('auth:resetPassword', (_event, id, password) => { requireAdmin(); return authService.resetPassword(id, password); });
   ipcMain.handle('auth:deleteAccount', (_event, id) => { requireAdmin(); return authService.deleteAccount(id); });
 
-  ipcMain.handle('db:load', () => { requireLogin(); return loadDatabase(); });
-  ipcMain.handle('db:save', (_event, data) => { requireManager(); return saveDatabase(data); });
+  ipcMain.handle('db:load', () => { requireLogin(); const data=loadDatabase();syncAccountsWithDatabase(data);return data; });
+  ipcMain.handle('db:save', (_event, data) => { requireManager(); const result=saveDatabase(data);syncAccountsWithDatabase(data);return result; });
   ipcMain.handle('person:updateAvatar', (_event, personId, avatarData = '') => {
     requireLogin();
     const user=authService.status().user;
@@ -110,26 +103,18 @@ app.whenReady().then(() => {
     requireManager();
     const result = await dialog.showOpenDialog({
       title: kind === 'projects' ? '导入项目资料' : '导入人员资料',
-      properties: ['openFile'],
-      filters: [
-        { name: 'Excel / CSV', extensions: ['xlsx', 'xls', 'csv'] }
-      ]
+      properties: ['openFile'], filters: [{ name: 'Excel / CSV', extensions: ['xlsx', 'xls', 'csv'] }]
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
-    try {
-      return { canceled: false, filePath: result.filePaths[0], rows: workbookRows(result.filePaths[0]) };
-    } catch (error) {
-      return { canceled: false, error: error.message };
-    }
+    try { return { canceled: false, filePath: result.filePaths[0], rows: workbookRows(result.filePaths[0]) }; }
+    catch (error) { return { canceled: false, error: error.message }; }
   });
 
   ipcMain.handle('file:saveTemplate', async (_event, kind) => {
     requireLogin();
     const name = kind === 'projects' ? '项目资料导入模板.xlsx' : '人员资料导入模板.xlsx';
     const source = path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'), 'templates', name);
-    const result = await dialog.showSaveDialog({
-      title: '保存导入模板', defaultPath: name, filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-    });
+    const result = await dialog.showSaveDialog({ title: '保存导入模板', defaultPath: name, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
     if (result.canceled || !result.filePath) return { canceled: true };
     fs.copyFileSync(source, result.filePath);
     return { canceled: false, filePath: result.filePath };
@@ -137,7 +122,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('file:exportBackup', async (_event, data) => {
     requireAdmin();
-    const day = new Date().toISOString().slice(0, 10);
+    const day = localDateString();
     const result = await dialog.showSaveDialog({
       title: '导出完整数据备份', defaultPath: `项目人员调度台-备份-${day}.json`,
       filters: [{ name: 'JSON 数据备份', extensions: ['json'] }]
@@ -157,9 +142,7 @@ app.whenReady().then(() => {
       const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
       if (!Array.isArray(data.projects) || !Array.isArray(data.people)) throw new Error('不是有效的调度台备份文件');
       return { canceled: false, data };
-    } catch (error) {
-      return { canceled: false, error: error.message };
-    }
+    } catch (error) { return { canceled: false, error: error.message }; }
   });
 
   ipcMain.handle('path:open', async (_event, target) => {
@@ -168,11 +151,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
