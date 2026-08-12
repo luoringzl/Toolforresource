@@ -41,16 +41,17 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   if(!person||person.employmentStatus!=='在岗')return null;
   const role=proposal.role||'';
   const requiredCapacity=Math.max(1,Number(proposal.allocation||proposal.requiredCapacity||20));
+  const planningStart=proposal.startDate||startDate;
   const positionMatch=personPositionMatchesRole(person,role);
   const skillMatch=personSkillMatchesRole(person,role);
-  const series=buildPersonCapacitySeries(db,person,{startDate,days});
+  const series=buildPersonCapacitySeries(db,person,{startDate:planningStart,days});
   const firstAvailableDate=firstDateWithCapacity(series,requiredCapacity,{consecutiveDays});
   const scenario=simulateAssignmentScenario(db,{
     personId:person.id,projectId:proposal.projectId,role,
     stage:proposal.stage||'其它',allocation:requiredCapacity,
-    startDate:proposal.startDate||firstAvailableDate||startDate,
+    startDate:firstAvailableDate||planningStart,
     endDate:proposal.endDate||''
-  },{startDate,days});
+  },{startDate:planningStart,days});
   if(!scenario.ok)return null;
 
   let score=0;
@@ -65,9 +66,9 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   }
   const quality=availabilityQuality(series,requiredCapacity);
   score+=Math.round(quality*RECOMMENDATION_WEIGHTS.availabilityQuality);
-  if(firstAvailableDate===startDate){score+=RECOMMENDATION_WEIGHTS.immediatelyAvailable;reasons.push('可立即满足所需产能');}
+  if(firstAvailableDate===planningStart){score+=RECOMMENDATION_WEIGHTS.immediatelyAvailable;reasons.push('可按期满足所需产能');}
   else if(firstAvailableDate){
-    const delay=daysBetween(startDate,firstAvailableDate);
+    const delay=daysBetween(planningStart,firstAvailableDate);
     score-=Math.min(20,delay*RECOMMENDATION_WEIGHTS.delayDayPenalty);
     reasons.push(`最早 ${firstAvailableDate} 可满足产能`);
   }else{
@@ -75,7 +76,7 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   }
   if(!positionMatch&&!skillMatch)risks.push('岗位与技能均非直接匹配');
   return {
-    person,score,positionMatch,skillMatch,firstAvailableDate,
+    person,score,positionMatch,skillMatch,planningStart,firstAvailableDate,
     averageAvailable:series.length?Math.round(series.reduce((sum,day)=>sum+day.available,0)/series.length):0,
     minAvailable:series.length?Math.min(...series.map(day=>day.available)):0,
     overloadDays:scenario.overloadDays.length,feasible:scenario.feasible,reasons,risks,scenario
@@ -99,5 +100,5 @@ export function recommendForStaffingNeed(db,needId,{startDate=localDateKey(new D
     projectId:project.id,role:need.role,stage:need.stage||'其它',allocation:Math.min(100,gap),
     startDate:need.neededBy||startDate,endDate:project.ddl||''
   };
-  return {ok:true,need,project,gap,candidates:recommendAssignmentCandidates(db,proposal,{startDate,days,consecutiveDays,limit})};
+  return {ok:true,need,project,gap,candidates:recommendAssignmentCandidates(db,proposal,{startDate:proposal.startDate,days,consecutiveDays,limit})};
 }
