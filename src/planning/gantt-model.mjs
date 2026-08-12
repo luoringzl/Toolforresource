@@ -80,15 +80,26 @@ export function buildProjectGanttModel(db,{startDate=localDateKey(new Date()),da
   return {kind:'project',startDate,endDate,columns,rows};
 }
 
+function localizeBar(bar,start,end){
+  if(!bar||bar.endIndex<start||bar.startIndex>=end)return null;
+  const localStart=Math.max(0,bar.startIndex-start);
+  const localEnd=Math.min(end-start-1,bar.endIndex-start);
+  return {...bar,startIndex:localStart,endIndex:localEnd,viewportStart:localStart,viewportEnd:localEnd,span:localEnd-localStart+1};
+}
+
 export function ganttViewport(model,{offset=0,length=14}={}){
-  const start=Math.max(0,Number(offset||0));
+  const maxStart=Math.max(0,model.columns.length-1);
+  const start=Math.min(maxStart,Math.max(0,Number(offset||0)));
   const end=Math.min(model.columns.length,start+Math.max(1,Number(length||14)));
   const columns=model.columns.slice(start,end);
+  const visibleDates=new Set(columns);
   const rows=model.rows.map(row=>({
     ...row,
-    bars:row.bars?.filter(bar=>bar.endIndex>=start&&bar.startIndex<end).map(bar=>({...bar,viewportStart:Math.max(0,bar.startIndex-start),viewportEnd:Math.min(end-start-1,bar.endIndex-start)})),
-    assignments:row.assignments?.filter(bar=>bar.endIndex>=start&&bar.startIndex<end).map(bar=>({...bar,viewportStart:Math.max(0,bar.startIndex-start),viewportEnd:Math.min(end-start-1,bar.endIndex-start)})),
-    milestones:row.milestones?.filter(item=>item.index>=start&&item.index<end).map(item=>({...item,viewportIndex:item.index-start}))
+    bar:localizeBar(row.bar,start,end),
+    bars:row.bars?.map(bar=>localizeBar(bar,start,end)).filter(Boolean),
+    assignments:row.assignments?.map(bar=>localizeBar(bar,start,end)).filter(Boolean),
+    milestones:row.milestones?.filter(item=>item.index>=start&&item.index<end).map(item=>({...item,viewportIndex:item.index-start})),
+    capacity:row.capacity?.filter(day=>visibleDates.has(day.date))
   }));
   return {...model,columns,rows,viewport:{offset:start,length:end-start}};
 }

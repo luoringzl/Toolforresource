@@ -3,7 +3,8 @@ import { normalizeDatabase } from '../schema/database.mjs';
 
 async function runEffects(api,database,effects=[]){
   const results=[];
-  for(const effect of effects){
+  const unique=[...new Map(effects.map(effect=>[effect.type,effect])).values()];
+  for(const effect of unique){
     if(effect.type==='syncPeopleAccounts'&&typeof api.syncPeopleAccounts==='function'){
       results.push({type:effect.type,result:await api.syncPeopleAccounts(database.people)});
     }
@@ -29,6 +30,24 @@ export function createApplicationService({api,store}){
       store.replaceDatabase(result.database,{source:'command',command:command.type});
       const effectResults=await runEffects(api,result.database,result.effects);
       return {...result,effectResults};
+    },
+    async dispatchMany(commands=[],options={}){
+      if(!Array.isArray(commands)||!commands.length)return {ok:false,error:'没有可执行的批量命令',code:'COMMANDS_REQUIRED'};
+      let database=store.getDatabase();
+      const results=[];
+      const effects=[];
+      for(let index=0;index<commands.length;index++){
+        const result=executeResourceCommand(database,commands[index],options);
+        if(!result.ok)return {...result,failedIndex:index,failedCommand:commands[index],results};
+        database=result.database;
+        results.push(result);
+        effects.push(...(result.effects||[]));
+      }
+      const saved=await api.saveData(database);
+      if(saved?.ok===false)return {ok:false,error:saved.error||'数据保存失败',code:'PERSIST_FAILED',results};
+      store.replaceDatabase(database,{source:'commands',commands:commands.map(command=>command.type)});
+      const effectResults=await runEffects(api,database,effects);
+      return {ok:true,database,results,effectResults,saved};
     },
     async replaceDatabase(database,{syncAccounts=true}={}){
       const normalized=normalizeDatabase(database);

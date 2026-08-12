@@ -16,6 +16,14 @@ export function createBrowserAPI({ storage = globalThis.localStorage, documentRe
     async deleteAccount() { return {ok:true}; },
     async loadData() { return repository.load(); },
     async saveData(data) { return repository.save(data); },
+    async databaseDiagnostics() {
+      const data=repository.load();
+      const raw=storage?.getItem('project-resource-db')||'';
+      return {exists:Boolean(raw),valid:true,sizeBytes:new Blob([raw]).size,version:Number(data.version||0),updatedAt:data.updatedAt||'',sha256:'',recoveryCount:0,recoveryPoints:[],browserMode:true};
+    },
+    async listRecoveryPoints() { return []; },
+    async restoreRecoveryPoint() { return {ok:false,error:'浏览器模式不支持自动恢复点'}; },
+    async clearRecoveryPoints() { return {ok:true,removed:0}; },
     async updatePersonAvatar(personId, avatarData) {
       return repository.update(data=>{
         const person=data.people.find(item=>item.id===personId);

@@ -42,6 +42,53 @@ test('命令校验失败时不持久化也不改变 Store',async()=>{
   assert.equal(store.getState().revision,revision);
 });
 
+test('dispatchMany 在所有命令成功后只保存一次',async()=>{
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'项目A',status:'制作中'});
+  db.people.push(
+    {id:'u1',name:'甲',capacity:100,employmentStatus:'在岗',position:'AI动画师',positions:['AI动画师']},
+    {id:'u2',name:'乙',capacity:100,employmentStatus:'在岗',position:'AI动画师',positions:['AI动画师']}
+  );
+  const api=fakeApi(db);const store=createAppStore({database:db});const service=createApplicationService({api,store});
+  const result=await service.dispatchMany([
+    {type:'assignment.assign',payload:{projectId:'p1',personId:'u1',role:'视频制作人员',stage:'视频',allocation:30,startDate:'2026-08-12'}},
+    {type:'assignment.assign',payload:{projectId:'p1',personId:'u2',role:'视频制作人员',stage:'视频',allocation:40,startDate:'2026-08-12'}}
+  ],{now:new Date('2026-08-12T12:00:00+08:00')});
+  assert.equal(result.ok,true);
+  assert.equal(result.database.assignments.length,2);
+  assert.equal(api.snapshot().assignments.length,2);
+  assert.deepEqual(api.calls,['save']);
+  assert.equal(store.getState().revision,1);
+});
+
+test('dispatchMany 中途失败时不保存任何前序命令',async()=>{
+  const db=emptyDatabase();
+  db.projects.push({id:'p1',name:'项目A',status:'制作中'});
+  db.people.push({id:'u1',name:'甲',capacity:100,employmentStatus:'在岗',position:'AI动画师',positions:['AI动画师']});
+  const api=fakeApi(db);const store=createAppStore({database:db});const service=createApplicationService({api,store});
+  const revision=store.getState().revision;
+  const result=await service.dispatchMany([
+    {type:'assignment.assign',payload:{projectId:'p1',personId:'u1',role:'视频制作人员',allocation:30}},
+    {type:'assignment.assign',payload:{projectId:'p1',personId:'missing',role:'视频制作人员',allocation:30}}
+  ]);
+  assert.equal(result.ok,false);
+  assert.equal(result.failedIndex,1);
+  assert.equal(api.calls.length,0);
+  assert.equal(api.snapshot().assignments.length,0);
+  assert.equal(store.getDatabase().assignments.length,0);
+  assert.equal(store.getState().revision,revision);
+});
+
+test('dispatchMany 合并重复 effect，只同步一次账号',async()=>{
+  const db=emptyDatabase();const api=fakeApi(db);const store=createAppStore({database:db});const service=createApplicationService({api,store});
+  const result=await service.dispatchMany([
+    {type:'person.upsert',payload:{values:{name:'甲',position:'AI动画师',employmentStatus:'在岗'}}},
+    {type:'person.upsert',payload:{values:{name:'乙',position:'AI动画师',employmentStatus:'在岗'}}}
+  ]);
+  assert.equal(result.ok,true);
+  assert.deepEqual(api.calls,['save','sync:2']);
+});
+
 test('replaceDatabase 用于备份恢复时统一保存与账号 reconciliation',async()=>{
   const api=fakeApi();const store=createAppStore();const service=createApplicationService({api,store});
   const db=emptyDatabase();db.people.push({id:'u1',name:'恢复人员',employmentStatus:'在岗'});
