@@ -12,13 +12,22 @@ export const DEFAULT_PLANNING_SETTINGS=Object.freeze({
   minAllocationChunk:10,
   allocationStep:10,
   workingDays:[1,2,3,4,5],
+  nonWorkingDates:[],
+  workingDateOverrides:[],
   capacityUnit:'percent'
 });
+
+function normalizeDateList(values=[]){
+  return [...new Set((Array.isArray(values)?values:[]).map(value=>String(value||'').trim()).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value)))].sort();
+}
 
 function normalizePlanningSettings(value={}){
   const planning={...DEFAULT_PLANNING_SETTINGS,...(value||{})};
   planning.forecastHorizons=[...new Set((planning.forecastHorizons||DEFAULT_PLANNING_SETTINGS.forecastHorizons).map(Number).filter(day=>day>0))].sort((a,b)=>a-b);
   planning.workingDays=[...new Set((planning.workingDays||DEFAULT_PLANNING_SETTINGS.workingDays).map(Number).filter(day=>day>=0&&day<=6))].sort((a,b)=>a-b);
+  if(!planning.workingDays.length)planning.workingDays=[...DEFAULT_PLANNING_SETTINGS.workingDays];
+  planning.nonWorkingDates=normalizeDateList(planning.nonWorkingDates);
+  planning.workingDateOverrides=normalizeDateList(planning.workingDateOverrides);
   planning.defaultForecastDays=Math.max(1,Number(planning.defaultForecastDays||30));
   planning.defaultGanttDays=Math.max(1,Number(planning.defaultGanttDays||60));
   planning.defaultGanttViewportDays=Math.max(1,Number(planning.defaultGanttViewportDays||21));
@@ -54,7 +63,7 @@ export function migrateV6ToV7(data={}){
 export function migrateToCurrentVersion(data={}){
   const source=data&&typeof data==='object'&&!Array.isArray(data)?data:{};
   const version=Number(source.version||6);
-  if(version> CURRENT_DATABASE_VERSION)throw new Error(`数据库版本 ${version} 高于当前支持版本 ${CURRENT_DATABASE_VERSION}`);
+  if(version>CURRENT_DATABASE_VERSION)throw new Error(`数据库版本 ${version} 高于当前支持版本 ${CURRENT_DATABASE_VERSION}`);
   let current={...source};
   if(version<=6)current=migrateV6ToV7(current);
   else current={
