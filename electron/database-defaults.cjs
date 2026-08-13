@@ -12,6 +12,8 @@ const DEFAULT_PLANNING_SETTINGS = Object.freeze({
   minAllocationChunk:10,
   allocationStep:10,
   workingDays:[1,2,3,4,5],
+  nonWorkingDates:[],
+  workingDateOverrides:[],
   capacityUnit:'percent'
 });
 
@@ -23,7 +25,12 @@ function emptyDatabase() {
     projects: [], people: [], assignments: [], staffingNeeds: [], activity: [],
     settings: {
       companyName:'', warningDays:7, dictionaries:{}, customFields:{projects:[],people:[]},
-      planning:{...DEFAULT_PLANNING_SETTINGS,forecastHorizons:[...DEFAULT_PLANNING_SETTINGS.forecastHorizons],workingDays:[...DEFAULT_PLANNING_SETTINGS.workingDays]}
+      planning:{
+        ...DEFAULT_PLANNING_SETTINGS,
+        forecastHorizons:[...DEFAULT_PLANNING_SETTINGS.forecastHorizons],
+        workingDays:[...DEFAULT_PLANNING_SETTINGS.workingDays],
+        nonWorkingDates:[],workingDateOverrides:[]
+      }
     }
   };
 }

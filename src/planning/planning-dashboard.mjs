@@ -43,7 +43,7 @@ function openNeeds(db){
 function buildCapacityHeatmap(teamSeries=[]){
   return teamSeries.map(day=>{
     const utilization=day.capacity?Math.round(day.usage/day.capacity*100):0;
-    const level=day.overloadedPeople>0?'overload':utilization>=90?'critical':utilization>=75?'high':utilization>=50?'medium':'low';
+    const level=day.workingDay===false?'off':day.overloadedPeople>0?'overload':utilization>=90?'critical':utilization>=75?'high':utilization>=50?'medium':'low';
     return {...day,utilization,level};
   });
 }
@@ -68,11 +68,16 @@ export function buildPlanningDashboardModel(db,{
   const projectGantt=buildProjectGanttModel(db,{startDate,days:ganttDays});
   const horizonCards=horizons.map(days=>({days,...teamForecast.windows[days]}));
   const availableCandidates=rankFutureCapacityCandidates(db,{startDate,days:recommendationDays,requiredCapacity:20,consecutiveDays:2}).slice(0,10);
-  const peopleSummary=(db.people||[]).map(person=>({
-    person,
-    remainingNow:personRemainingCapacity(db,person,startDate),
-    conflict:conflictPeople.find(item=>item.person?.id===person.id)||null
-  }));
+  const peopleSummary=(db.people||[]).map(person=>{
+    const calendarEntry=teamForecast.calendar.find(entry=>entry.person?.id===person.id);
+    const today=calendarEntry?.days?.[0];
+    return {
+      person,
+      remainingNow:today?today.remaining:personRemainingCapacity(db,person,startDate),
+      workingToday:today?.workingDay!==false,
+      conflict:conflictPeople.find(item=>item.person?.id===person.id)||null
+    };
+  });
   return {
     generatedAt:new Date().toISOString(),startDate,horizons,
     summary:{

@@ -30,9 +30,14 @@ function daysBetween(a,b){
   return Math.max(0,Math.round((second-first)/86400000));
 }
 
+function workingSeries(series=[]){
+  return series.filter(day=>day.workingDay!==false);
+}
+
 function availabilityQuality(series,required){
-  if(!series.length)return 0;
-  const average=series.reduce((sum,day)=>sum+day.available,0)/series.length;
+  const working=workingSeries(series);
+  if(!working.length)return 0;
+  const average=working.reduce((sum,day)=>sum+day.available,0)/working.length;
   if(required<=0)return Math.min(1,average/100);
   return Math.min(1,average/Math.max(required,1));
 }
@@ -45,6 +50,7 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   const positionMatch=personPositionMatchesRole(person,role);
   const skillMatch=personSkillMatchesRole(person,role);
   const series=buildPersonCapacitySeries(db,person,{startDate:planningStart,days});
+  const working=workingSeries(series);
   const firstAvailableDate=firstDateWithCapacity(series,requiredCapacity,{consecutiveDays});
   const scenario=simulateAssignmentScenario(db,{
     personId:person.id,projectId:proposal.projectId,role,
@@ -62,7 +68,7 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   if(scenario.feasible){score+=RECOMMENDATION_WEIGHTS.feasible;reasons.push('规划窗口内无超载冲突');}
   else{
     const penalty=Math.min(40,scenario.overloadDays.length*RECOMMENDATION_WEIGHTS.overloadDayPenalty);
-    score-=penalty;risks.push(`预计 ${scenario.overloadDays.length} 天超载`);
+    score-=penalty;risks.push(`预计 ${scenario.overloadDays.length} 个工作日超载`);
   }
   const quality=availabilityQuality(series,requiredCapacity);
   score+=Math.round(quality*RECOMMENDATION_WEIGHTS.availabilityQuality);
@@ -77,8 +83,9 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   if(!positionMatch&&!skillMatch)risks.push('岗位与技能均非直接匹配');
   return {
     person,score,positionMatch,skillMatch,planningStart,firstAvailableDate,
-    averageAvailable:series.length?Math.round(series.reduce((sum,day)=>sum+day.available,0)/series.length):0,
-    minAvailable:series.length?Math.min(...series.map(day=>day.available)):0,
+    workingDays:working.length,
+    averageAvailable:working.length?Math.round(working.reduce((sum,day)=>sum+day.available,0)/working.length):0,
+    minAvailable:working.length?Math.min(...working.map(day=>day.available)):0,
     overloadDays:scenario.overloadDays.length,feasible:scenario.feasible,reasons,risks,scenario
   };
 }

@@ -27,6 +27,8 @@ export function resolvePlanningRuntimeConfig(db,overrides={}){
     minChunk:Math.min(100,positive(overrides.minChunk,stored.minAllocationChunk)),
     step:positive(overrides.step,stored.allocationStep),
     workingDays:[...(overrides.workingDays||stored.workingDays)],
+    nonWorkingDates:[...(overrides.nonWorkingDates||stored.nonWorkingDates||[])],
+    workingDateOverrides:[...(overrides.workingDateOverrides||stored.workingDateOverrides||[])],
     capacityUnit:overrides.capacityUnit||stored.capacityUnit,
     recommendationLimit:positive(overrides.recommendationLimit,3),
     consecutiveDays:positive(overrides.consecutiveDays,1)
