@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="planning-center/scenario.css">
   <link rel="stylesheet" href="planning-center/history.css">
   <link rel="stylesheet" href="planning-center/project-network.css">
+  <link rel="stylesheet" href="planning-center/dependency-gate.css">
 </head>
 <body>
   <div class="planning-shell">
@@ -33,7 +34,7 @@
 
     <main class="planning-main">
       <header class="planning-topbar">
-        <div><p>资源规划 / V2.5</p><h1 id="planning-title">资源总览</h1></div>
+        <div><p>资源规划 / V2.6</p><h1 id="planning-title">资源总览</h1></div>
         <div class="planning-controls"><div class="history-controls" id="planning-history-controls"></div><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
       </header>
       <div id="planning-message" class="planning-message" hidden></div>
@@ -64,7 +65,8 @@
 
       <section class="planning-view" id="planning-auto">
         <div class="planning-section">
-          <div class="planning-section-head"><div><h2>自动排期与多方案优化</h2><p>先在模拟数据库生成多种资源组合，再按业务目标排序；应用后才写入真实分工</p></div><div id="planning-optimizer-controls"></div></div>
+          <div class="planning-section-head"><div><h2>依赖感知自动排期与多方案优化</h2><p>先通过项目依赖门控；只有前置条件满足的 ready 需求才进入可应用方案</p></div><div id="planning-optimizer-controls"></div></div>
+          <div id="planning-dependency-gate"></div>
           <div id="planning-optimizer-result"></div>
           <div class="section-mini-head"><strong>当前草案明细</strong><span class="draft-label" id="planning-draft-label"></span></div>
           <div id="planning-auto-draft"></div>
