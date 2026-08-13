@@ -25,6 +25,7 @@ import {
   renderPlanningSettings,
   renderDatabaseHealth
 } from './renderers.mjs';
+import { installWorkCalendarFields, readWorkCalendarPatch } from './work-calendar-ui.mjs';
 
 const api=window.desktopAPI||createBrowserAPI();
 const store=createAppStore();
@@ -120,8 +121,9 @@ function renderSettings(){
   const settings=planningSettingsFromDatabase(database());
   root.innerHTML=renderPlanningSettings(settings);
   const form=$('#planning-settings-form');
+  installWorkCalendarFields(form,settings);
   if(!isAdmin()){
-    $$('input,button',form).forEach(control=>control.disabled=true);
+    $$('input,textarea,button',form).forEach(control=>control.disabled=true);
     form.insertAdjacentHTML('afterbegin','<div class="planning-empty" style="grid-column:1/-1">规划参数为全局规则，仅高级管理员可修改。</div>');
     return;
   }
@@ -139,7 +141,8 @@ function renderSettings(){
       maxAllocationChunk:Number(values.maxAllocationChunk),
       minAllocationChunk:Number(values.minAllocationChunk),
       allocationStep:Number(values.allocationStep),
-      workingDays:$$('[name="workingDays"]:checked',form).map(input=>Number(input.value))
+      workingDays:$$('[name="workingDays"]:checked',form).map(input=>Number(input.value)),
+      ...readWorkCalendarPatch(form)
     };
     const next=updatePlanningSettings(database(),patch);
     if(!next.ok){showMessage(next.error,true);return;}
@@ -150,7 +153,7 @@ function renderSettings(){
     showMessage('规划参数已保存并立即应用');
   };
   $('#reset-planning-settings').onclick=async()=>{
-    if(!await openConfirm('恢复规划默认值','将预测、甘特、推荐和自动排期参数恢复为系统默认值。'))return;
+    if(!await openConfirm('恢复规划默认值','将预测、甘特、推荐、自动排期和工作日历参数恢复为系统默认值。'))return;
     const next=resetPlanningSettings(database());
     if(!next.ok){showMessage(next.error,true);return;}
     const result=await applicationService.replaceDatabase(next.database,{syncAccounts:false});
