@@ -34,6 +34,11 @@ function workingSeries(series=[]){
   return series.filter(day=>day.workingDay!==false);
 }
 
+function seriesWithinEndDate(series=[],endDate=''){
+  if(!endDate)return series;
+  return series.filter(day=>!day.date||day.date<=endDate);
+}
+
 function availabilityQuality(series,required){
   const working=workingSeries(series);
   if(!working.length)return 0;
@@ -47,16 +52,18 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
   const role=proposal.role||'';
   const requiredCapacity=Math.max(1,Number(proposal.allocation||proposal.requiredCapacity||20));
   const planningStart=proposal.startDate||startDate;
+  const planningEnd=proposal.endDate||'';
   const positionMatch=personPositionMatchesRole(person,role);
   const skillMatch=personSkillMatchesRole(person,role);
   const series=buildPersonCapacitySeries(db,person,{startDate:planningStart,days});
-  const working=workingSeries(series);
-  const firstAvailableDate=firstDateWithCapacity(series,requiredCapacity,{consecutiveDays});
+  const eligibleSeries=seriesWithinEndDate(series,planningEnd);
+  const working=workingSeries(eligibleSeries);
+  const firstAvailableDate=firstDateWithCapacity(eligibleSeries,requiredCapacity,{consecutiveDays});
   const scenario=simulateAssignmentScenario(db,{
     personId:person.id,projectId:proposal.projectId,role,
     stage:proposal.stage||'其它',allocation:requiredCapacity,
     startDate:firstAvailableDate||planningStart,
-    endDate:proposal.endDate||''
+    endDate:planningEnd
   },{startDate:planningStart,days});
   if(!scenario.ok)return null;
 
@@ -70,7 +77,7 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
     const penalty=Math.min(40,scenario.overloadDays.length*RECOMMENDATION_WEIGHTS.overloadDayPenalty);
     score-=penalty;risks.push(`预计 ${scenario.overloadDays.length} 个工作日超载`);
   }
-  const quality=availabilityQuality(series,requiredCapacity);
+  const quality=availabilityQuality(eligibleSeries,requiredCapacity);
   score+=Math.round(quality*RECOMMENDATION_WEIGHTS.availabilityQuality);
   if(firstAvailableDate===planningStart){score+=RECOMMENDATION_WEIGHTS.immediatelyAvailable;reasons.push('可按期满足所需产能');}
   else if(firstAvailableDate){
@@ -78,7 +85,8 @@ export function scoreAssignmentCandidate(db,person,proposal,{startDate=localDate
     score-=Math.min(20,delay*RECOMMENDATION_WEIGHTS.delayDayPenalty);
     reasons.push(`最早 ${firstAvailableDate} 可满足产能`);
   }else{
-    score-=25;risks.push(`${days} 天窗口内无连续可用产能`);
+    score-=25;
+    risks.push(planningEnd?`项目结束日前无连续可用产能（DDL ${planningEnd}）`:`${days} 天窗口内无连续可用产能`);
   }
   if(!positionMatch&&!skillMatch)risks.push('岗位与技能均非直接匹配');
   return {

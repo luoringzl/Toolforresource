@@ -76,12 +76,13 @@ test('技能匹配可以成为候选，但低于无冲突的直接职位匹配',
   assert.ok(free.score>skill.score);
 });
 
-test('单人评分提供风险与最早可用日期解释',()=>{
+test('单人评分不会把项目结束日之后的空闲时间作为有效最早可用日期',()=>{
   const db=fixture();
   const busy=db.people.find(item=>item.id==='busy');
   const result=scoreAssignmentCandidate(db,busy,{projectId:'p1',role:'视频制作人员',allocation:50,startDate:'2026-08-12',endDate:'2026-08-18'},{startDate:'2026-08-12',days:20});
-  assert.equal(result.firstAvailableDate,'2026-08-21');
-  assert.ok(result.reasons.some(reason=>reason.includes('2026-08-21')));
+  assert.equal(result.firstAvailableDate,'');
+  assert.ok(result.risks.some(risk=>risk.includes('项目结束日前无连续可用产能')));
+  assert.ok(result.risks.some(risk=>risk.includes('2026-08-18')));
 });
 
 test('用人需求可直接生成解释型候选列表',()=>{

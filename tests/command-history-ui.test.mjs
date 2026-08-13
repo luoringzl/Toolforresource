@@ -106,7 +106,7 @@ test('管理员可把一次自动排期作为一个事务撤销、重做并查�
     assert.equal(session.getSaves(),1);
     const undo=document.querySelector('#planning-undo');
     assert.equal(undo.disabled,false);
-    assert.match(undo.title,/撤销：安排项目分工/);
+    assert.match(undo.title,/撤销：关键路径优先 · 依赖感知快速单方案/);
 
     undo.click();
     await tick(0);

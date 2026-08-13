@@ -127,5 +127,5 @@ test('Planning Center 加载 Dependency Gate 样式和专用根节点',()=>{
   const html=fs.readFileSync(path.join(root,'src/planning.html'),'utf8');
   assert.match(html,/planning-center\/dependency-gate\.css/);
   assert.match(html,/id="planning-dependency-gate"/);
-  assert.match(html,/依赖感知自动排期/);
+  assert.match(html,/关键路径优先自动排期/);
 });
