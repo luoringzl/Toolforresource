@@ -5,28 +5,48 @@ import { buildDependencyAwareStaffingPlan } from './dependency-aware-scheduling.
 import { SCHEDULE_STRATEGIES, OPTIMIZATION_OBJECTIVES, evaluateScheduleDraft } from './schedule-optimizer.mjs';
 import { localDateKey } from '../utils/date.mjs';
 
+export const CRITICAL_PATH_STAFFING_WEIGHTS=Object.freeze({
+  criticalPath:1000,
+  lateWorkingDay:250,
+  businessPriority:Object.freeze({P0:400,P1:250,P2:100,P3:0}),
+  floatWorkingDay:-20,
+  gapPercent:.25
+});
+
 function projectPriorityScore(priority=''){
   const match=String(priority||'').toUpperCase().match(/P([0-3])/);
-  return ({0:400,1:250,2:100,3:0})[match?.[1]]??0;
+  return CRITICAL_PATH_STAFFING_WEIGHTS.businessPriority[`P${match?.[1]}`]??0;
 }
 
 function maxDate(...values){return values.filter(Boolean).sort().at(-1)||'';}
+function rounded(value){return Math.round(Number(value||0)*10)/10;}
+function signed(value){return Number(value||0)>0?`+${rounded(value)}`:`${rounded(value)}`;}
 
 function needPriority(item){
   const node=item.state?.node;
-  const criticalBonus=node?.critical?1000:0;
-  const lateBonus=Math.max(0,Number(node?.lateByWorkingDays||0))*250;
+  const lateDays=Math.max(0,Number(node?.lateByWorkingDays||0));
+  const floatDays=Math.max(0,Number(node?.totalFloatDays||0));
+  const gap=Math.min(100,Math.max(0,Number(item.gap||0)));
+  const criticalBonus=node?.critical?CRITICAL_PATH_STAFFING_WEIGHTS.criticalPath:0;
+  const lateBonus=lateDays*CRITICAL_PATH_STAFFING_WEIGHTS.lateWorkingDay;
   const businessPriority=projectPriorityScore(item.project?.priority);
-  const floatPenalty=Math.max(0,Number(node?.totalFloatDays||0))*20;
-  const gapBonus=Math.min(100,Math.max(0,Number(item.gap||0)))*0.25;
-  const score=criticalBonus+lateBonus+businessPriority-floatPenalty+gapBonus;
+  const floatPenalty=floatDays*CRITICAL_PATH_STAFFING_WEIGHTS.floatWorkingDay;
+  const gapBonus=gap*CRITICAL_PATH_STAFFING_WEIGHTS.gapPercent;
+  const breakdown=[
+    {key:'criticalPath',label:'关键路径',score:criticalBonus,detail:node?.critical?`关键路径 ${signed(criticalBonus)}`:'非关键路径 +0'},
+    {key:'late',label:'DDL 延误',score:lateBonus,detail:lateDays?`预计晚 ${lateDays} 个工作日 × ${CRITICAL_PATH_STAFFING_WEIGHTS.lateWorkingDay} = ${signed(lateBonus)}`:'未预计逾期 +0'},
+    {key:'businessPriority',label:'业务优先级',score:businessPriority,detail:`${item.project?.priority||'未设置优先级'} ${signed(businessPriority)}`},
+    {key:'float',label:'浮动时间',score:floatPenalty,detail:floatDays?`浮动 ${floatDays} 个工作日 × ${CRITICAL_PATH_STAFFING_WEIGHTS.floatWorkingDay} = ${signed(floatPenalty)}`:'零浮动 0'},
+    {key:'gap',label:'人员缺口',score:gapBonus,detail:`缺口 ${gap}% × ${CRITICAL_PATH_STAFFING_WEIGHTS.gapPercent} = ${signed(gapBonus)}`}
+  ];
+  const score=rounded(breakdown.reduce((sum,item)=>sum+Number(item.score||0),0));
   const reasons=[];
   if(node?.critical)reasons.push('关键路径');
-  if(Number(node?.lateByWorkingDays||0)>0)reasons.push(`预计晚 ${node.lateByWorkingDays} 个工作日`);
+  if(lateDays>0)reasons.push(`预计晚 ${lateDays} 个工作日`);
   if(businessPriority)reasons.push(item.project?.priority||'高优先级');
-  if(Number(node?.totalFloatDays||0)>0)reasons.push(`浮动 ${node.totalFloatDays} 个工作日`);
+  if(floatDays>0)reasons.push(`浮动 ${floatDays} 个工作日`);
   reasons.push(`缺口 ${item.gap}%`);
-  return {score:Math.round(score*10)/10,reasons};
+  return {score,reasons,breakdown};
 }
 
 export function buildCriticalPathNeedPriorityModel(db,{startDate=localDateKey(new Date())}={}){
@@ -34,7 +54,13 @@ export function buildCriticalPathNeedPriorityModel(db,{startDate=localDateKey(ne
   if(!plan.ok)return {ok:false,error:plan.error,plan,priorities:[],scores:{}};
   const priorities=plan.eligibleNeeds.map(item=>{
     const priority=needPriority(item);
-    return {...item,priorityScore:priority.score,priorityReasons:priority.reasons};
+    return {
+      ...item,
+      critical:Boolean(item.state?.node?.critical),
+      priorityScore:priority.score,
+      priorityReasons:priority.reasons,
+      priorityBreakdown:priority.breakdown
+    };
   }).sort((a,b)=>
     b.priorityScore-a.priorityScore||
     String(a.need.neededBy||a.project.ddl||'9999-12-31').localeCompare(String(b.need.neededBy||b.project.ddl||'9999-12-31'))||
@@ -67,7 +93,8 @@ function mergeDrafts(db,drafts,priorityModel,{startDate,days}){
     conflicts:validation.conflicts,
     priorityOrder:priorityModel.priorities.map(item=>({
       needId:item.need.id,projectId:item.project.id,projectName:item.project.name,role:item.need.role,
-      priorityScore:item.priorityScore,reasons:[...item.priorityReasons]
+      priorityScore:item.priorityScore,reasons:[...item.priorityReasons],
+      breakdown:item.priorityBreakdown.map(factor=>({...factor}))
     })),
     summary:{
       proposalCount:proposals.length,proposedPeople:new Set(proposals.map(item=>item.personId)).size,
