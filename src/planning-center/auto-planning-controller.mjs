@@ -1,0 +1,104 @@
+import { buildDependencyAwareStaffingPlan } from '../planning/dependency-aware-scheduling.mjs';
+import { optimizeDependencyAwareSchedule } from '../planning/dependency-aware-optimizer.mjs';
+import { autoScheduleDraftCommands } from '../planning/auto-scheduler.mjs';
+import { scheduleOptionCommands } from '../planning/schedule-optimizer.mjs';
+import { renderAutoDraft } from './renderers.mjs';
+import { renderOptimizerControls, renderOptimizationResult } from './optimizer-ui.mjs';
+import { renderDependencyGate } from './dependency-gate-ui.mjs';
+
+export function createAutoPlanningController({getDatabase,getStartDate,canManage,applyCommands,showMessage,documentRef=document}={}){
+  const $=selector=>documentRef.querySelector(selector);
+  const $$=selector=>[...documentRef.querySelectorAll(selector)];
+  let plan=null;
+  let currentDraft=null;
+  let currentDraftLabel='';
+  let optimizationResult=null;
+
+  function refreshPlan(){
+    plan=buildDependencyAwareStaffingPlan(getDatabase(),{startDate:getStartDate()});
+    return plan;
+  }
+
+  function renderRoots(){
+    const gateRoot=$('#planning-dependency-gate');
+    const controls=$('#planning-optimizer-controls');
+    const resultRoot=$('#planning-optimizer-result');
+    const draftRoot=$('#planning-auto-draft');
+    const label=$('#planning-draft-label');
+    if(gateRoot)gateRoot.innerHTML=renderDependencyGate(plan);
+    if(controls)controls.innerHTML=renderOptimizerControls();
+    if(resultRoot)resultRoot.innerHTML=renderOptimizationResult(optimizationResult,{canManage:canManage()});
+    if(draftRoot)draftRoot.innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+    if(label)label.textContent=currentDraftLabel;
+    if(optimizationResult&&$('#schedule-objective'))$('#schedule-objective').value=optimizationResult.objective;
+    bind();
+  }
+
+  function render(){
+    if(!plan)refreshPlan();
+    renderRoots();
+  }
+
+  function reset(){
+    plan=null;currentDraft=null;currentDraftLabel='';optimizationResult=null;
+  }
+
+  function generateDraft(){
+    refreshPlan();
+    currentDraft=plan.draft;
+    currentDraftLabel='依赖感知快速单方案';
+    optimizationResult=null;
+    renderRoots();
+    if(!plan.ok){showMessage(plan.error||'项目依赖网络无效',true);return;}
+    if(!plan.eligibleNeeds.length){showMessage(`当前没有可立即排期的需求；${plan.blockedNeeds.length} 条需求被前置项目阻塞`,plan.blockedNeeds.length>0);return;}
+    const summary=currentDraft.summary;
+    showMessage(`依赖门控后生成 ${summary.proposalCount} 条建议；${plan.blockedNeeds.length} 条阻塞需求未进入草案`);
+  }
+
+  function generateOptimization(){
+    const objective=$('#schedule-objective')?.value||'balanced';
+    const result=optimizeDependencyAwareSchedule(getDatabase(),{objective,startDate:getStartDate()});
+    plan=result.plan;
+    optimizationResult=result.optimization;
+    currentDraft=optimizationResult?.recommended?.draft||null;
+    currentDraftLabel=optimizationResult?.recommended?`依赖感知推荐：${optimizationResult.recommended.label}`:'';
+    renderRoots();
+    if(!result.ok){showMessage(result.error||'依赖门控无法生成优化方案',true);return;}
+    if(!plan.eligibleNeeds.length){showMessage(`没有 ready 需求可优化；${plan.blockedNeeds.length} 条需求保持阻塞`,plan.blockedNeeds.length>0);return;}
+    if(optimizationResult.recommended)showMessage(`只比较 ${plan.eligibleNeeds.length} 条 ready 需求，推荐“${optimizationResult.recommended.label}”；已排除 ${plan.blockedNeeds.length} 条阻塞需求`);
+    else showMessage('依赖门控后暂无可比较方案',true);
+  }
+
+  async function applyDraft(draft,label,commands){
+    if(!canManage()){showMessage('当前账号只有查看权限，不能修改真实排班',true);return;}
+    if(!commands.length)return;
+    await applyCommands(commands,draft,label);
+  }
+
+  function bind(){
+    $('#generate-auto-draft')?.addEventListener('click',generateDraft,{once:true});
+    $('#generate-optimized-options')?.addEventListener('click',generateOptimization,{once:true});
+    const draftButton=$('#apply-auto-draft');
+    if(draftButton&&currentDraft)draftButton.onclick=()=>applyDraft(currentDraft,currentDraftLabel||'依赖感知排期',autoScheduleDraftCommands(currentDraft));
+    if(optimizationResult){
+      $$('[data-preview-option]').forEach(button=>button.onclick=()=>{
+        const option=optimizationResult.options.find(item=>item.id===button.dataset.previewOption);
+        if(!option)return;
+        currentDraft=option.draft;
+        currentDraftLabel=`依赖感知方案 #${option.rank} · ${option.label}`;
+        $$('.optimizer-option').forEach(card=>card.dataset.previewing=String(card.dataset.optionId===option.id));
+        const draftRoot=$('#planning-auto-draft');
+        if(draftRoot)draftRoot.innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+        const label=$('#planning-draft-label');if(label)label.textContent=currentDraftLabel;
+        const apply=$('#apply-auto-draft');if(apply)apply.onclick=()=>applyDraft(currentDraft,currentDraftLabel,autoScheduleDraftCommands(currentDraft));
+      });
+      $$('[data-apply-option]').forEach(button=>button.onclick=()=>{
+        const option=optimizationResult.options.find(item=>item.id===button.dataset.applyOption);
+        if(option)applyDraft(option.draft,`依赖感知优化：${option.label}`,scheduleOptionCommands(option));
+      });
+    }
+  }
+
+  function snapshot(){return {plan,currentDraft,currentDraftLabel,optimizationResult};}
+  return {render,reset,generateDraft,generateOptimization,snapshot};
+}
