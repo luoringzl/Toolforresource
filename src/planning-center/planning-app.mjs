@@ -28,6 +28,7 @@ import {
 } from './renderers.mjs';
 import { installWorkCalendarFields, readWorkCalendarPatch } from './work-calendar-ui.mjs';
 import { renderOptimizerControls, renderOptimizationResult } from './optimizer-ui.mjs';
+import { createScenarioController } from './scenario-controller.mjs';
 
 const api=window.desktopAPI||createBrowserAPI();
 const store=createAppStore();
@@ -40,12 +41,13 @@ let dashboardModel=null;
 let currentDraft=null;
 let currentDraftLabel='';
 let optimizationResult=null;
+let scenarioController=null;
 let resourceOffset=0;
 let projectOffset=0;
 let currentPlanningView='overview';
 
 const viewTitles={
-  overview:'资源总览',gantt:'甘特排期',recommend:'需求推荐',auto:'自动排期',settings:'规划参数',health:'数据健康'
+  overview:'资源总览',gantt:'甘特排期',recommend:'需求推荐',auto:'自动排期',scenario:'情景沙盘',settings:'规划参数',health:'数据健康'
 };
 
 const canManage=()=>['admin','manager'].includes(currentUser?.role);
@@ -102,6 +104,7 @@ function resetPlanningState(){
   currentDraft=null;
   currentDraftLabel='';
   optimizationResult=null;
+  scenarioController?.reset();
   resourceOffset=0;
   projectOffset=0;
 }
@@ -199,6 +202,7 @@ function renderPlanning(){
   $('#planning-recommendations').innerHTML=renderNeedRecommendations(dashboardModel);
   $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
   renderOptimizer();
+  scenarioController?.render();
   renderGantts();
   renderSettings();
   bindDraftApply();
@@ -214,13 +218,13 @@ async function applyCommands(commands,draft,label='排期方案'){
   if(!canManage()){showMessage('当前账号只有查看权限，不能修改真实排班',true);return;}
   if(!commands.length)return;
   const warning=draftWarning(draft);
-  const text=`将一次写入 ${commands.length} 条项目分工。${warning?`${warning}。`:''}写入会使用单次原子批量提交。`;
+  const text=`将一次执行 ${commands.length} 条资源变更。${warning?`${warning}。`:''}写入会使用单次原子批量提交。`;
   if(!await openConfirm(`应用${label}`,text,{confirmLabel:'应用方案'}))return;
   const result=await applicationService.dispatchMany(commands,{now:new Date()});
   if(!result.ok){showMessage(`方案应用失败：${result.error||'未知错误'}`,true);return;}
   resetPlanningState();
   renderPlanning();
-  showMessage(`已应用 ${commands.length} 条排期建议`);
+  showMessage(`已应用 ${commands.length} 条资源变更`);
 }
 
 function bindDraftApply(){
@@ -363,6 +367,7 @@ async function initialize(){
     store.replaceDatabase(loaded,{source:'planning-load'});
     store.setUser(currentUser);
     $('#planning-start-date').value=localDateKey(new Date());
+    scenarioController=createScenarioController({getDatabase:database,getStartDate:startDate,canManage,applyCommands,showMessage,documentRef:document});
     bindEvents();
     renderPlanning();
     setPlanningView('overview');
