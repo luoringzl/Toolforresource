@@ -14,6 +14,12 @@ function defaultId(){
 
 function commandsLabel(commands=[]){
   if(commands.length===1)return COMMAND_LABELS[commands[0]?.type]||commands[0]?.type||'数据变更';
+  const types=commands.map(command=>command?.type||'unknown');
+  if(types.every(type=>type==='assignment.assign'))return `批量安排项目分工（${commands.length} 条）`;
+  const uniqueTypes=[...new Set(types)];
+  if(uniqueTypes.every(type=>['assignment.remove','assignment.assign','assignment.status'].includes(type)))return `调整项目分工（${commands.length} 条）`;
+  if(uniqueTypes.every(type=>type.startsWith('person.')))return `批量维护人员（${commands.length} 条）`;
+  if(uniqueTypes.every(type=>type.startsWith('project.')))return `批量维护项目（${commands.length} 条）`;
   const names=[...new Set(commands.map(command=>COMMAND_LABELS[command?.type]||command?.type||'数据变更'))];
   return names.length<=2?names.join(' + '):`${names.slice(0,2).join(' + ')} 等 ${commands.length} 条`;
 }

@@ -6,6 +6,7 @@ import {
   createCommandHistory,
   restoreSnapshotPreservingAudit
 } from './command-history.mjs';
+import { notifyApplicationRuntime, registerApplicationService } from './application-runtime.mjs';
 
 async function runEffects(api,database,effects=[]){
   const results=[];
@@ -42,7 +43,9 @@ export function createApplicationService({api,store,history=createCommandHistory
     history.commit(transaction);
     store.replaceDatabase(audited,{source,transactionId:transaction.id,commands:commands.map(command=>command.type)});
     const effectResults=await runEffects(api,audited,effects);
-    return {ok:true,database:audited,effectResults,saved,transaction:history.status().nextUndo};
+    const summary=history.status().nextUndo;
+    notifyApplicationRuntime({type:'history-changed',action:'commit',transaction:summary,database:audited});
+    return {ok:true,database:audited,effectResults,saved,transaction:summary};
   }
 
   async function restoreHistoryTransaction(direction,options={}){
@@ -58,14 +61,16 @@ export function createApplicationService({api,store,history=createCommandHistory
     const completed=direction==='undo'?history.completeUndo():history.completeRedo();
     store.replaceDatabase(audited,{source:direction,transactionId:transaction.id});
     const effectResults=await runEffects(api,audited,[{type:'syncPeopleAccounts'}]);
+    notifyApplicationRuntime({type:'history-changed',action:direction,transaction:completed,database:audited});
     return {ok:true,database:audited,transaction:completed,effectResults,saved,history:history.status()};
   }
 
-  return {
+  const service={
     async load(){
       const database=normalizeDatabase(await api.loadData());
       history.clear();
       store.replaceDatabase(database,{source:'load'});
+      notifyApplicationRuntime({type:'history-reset',action:'load',database});
       return store.getState();
     },
     async dispatch(command,options={}){
@@ -104,6 +109,7 @@ export function createApplicationService({api,store,history=createCommandHistory
         const effectResults=syncAccounts&&typeof api.syncPeopleAccounts==='function'
           ? [{type:'syncPeopleAccounts',result:await api.syncPeopleAccounts(normalized.people)}]
           : [];
+        notifyApplicationRuntime({type:'history-reset',action:'replace',database:normalized});
         return {ok:true,database:normalized,effectResults,saved};
       }
       const effects=syncAccounts?[{type:'syncPeopleAccounts'}]:[];
@@ -113,6 +119,12 @@ export function createApplicationService({api,store,history=createCommandHistory
     redo(options={}){return restoreHistoryTransaction('redo',options);},
     historyStatus(){return history.status();},
     auditTrail({limit=100}={}){return commandAuditTrail(store.getDatabase(),{limit});},
-    clearHistory(){history.clear();return history.status();}
+    clearHistory(){
+      history.clear();
+      notifyApplicationRuntime({type:'history-reset',action:'clear'});
+      return history.status();
+    }
   };
+  registerApplicationService(service);
+  return service;
 }

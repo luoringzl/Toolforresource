@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="planning-center/work-calendar.css">
   <link rel="stylesheet" href="planning-center/optimizer.css">
   <link rel="stylesheet" href="planning-center/scenario.css">
+  <link rel="stylesheet" href="planning-center/history.css">
 </head>
 <body>
   <div class="planning-shell">
@@ -30,8 +31,8 @@
 
     <main class="planning-main">
       <header class="planning-topbar">
-        <div><p>资源规划 / V2.3</p><h1 id="planning-title">资源总览</h1></div>
-        <div class="planning-controls"><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
+        <div><p>资源规划 / V2.4</p><h1 id="planning-title">资源总览</h1></div>
+        <div class="planning-controls"><div class="history-controls" id="planning-history-controls"></div><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
       </header>
       <div id="planning-message" class="planning-message" hidden></div>
 
@@ -74,7 +75,9 @@
       </section>
     </main>
   </div>
+  <div id="planning-history-root"></div>
   <div class="planning-dialog-root" id="planning-dialog-root"></div>
   <script type="module" src="planning-center/planning-app.mjs"></script>
+  <script type="module" src="planning-center/history-bootstrap.mjs"></script>
 </body>
 </html>
