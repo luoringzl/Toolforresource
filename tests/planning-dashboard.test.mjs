@@ -48,14 +48,17 @@ test('Planning Dashboard 把超载人员按严重程度聚合',()=>{
   assert.equal(conflict.maxUsage,120);
   assert.equal(conflict.maxOverload,20);
   assert.equal(conflict.severity,'high');
-  assert.equal(conflict.firstDate,'2026-08-15');
+  assert.equal(conflict.firstDate,'2026-08-17');
   assert.equal(conflict.lastDate,'2026-08-20');
 });
 
-test('团队热力图根据利用率和冲突输出等级',()=>{
+test('团队热力图区分休息日与工作日冲突',()=>{
   const db=fixture();
   const model=buildPlanningDashboardModel(db,{startDate:'2026-08-12',horizons:[30]});
-  const overload=model.heatmap.find(day=>day.date==='2026-08-15');
+  const weekend=model.heatmap.find(day=>day.date==='2026-08-15');
+  assert.equal(weekend.level,'off');
+  assert.equal(weekend.workingDay,false);
+  const overload=model.heatmap.find(day=>day.date==='2026-08-17');
   assert.equal(overload.level,'overload');
   assert.equal(overload.overloadedPeople,1);
   const later=model.heatmap.find(day=>day.date==='2026-08-26');
