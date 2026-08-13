@@ -1,7 +1,7 @@
 {
   "name": "project-resource-console",
-  "version": "1.8.0",
-  "description": "离线项目资料库、人员资料库与产能调度桌面软件",
+  "version": "2.7.0",
+  "description": "离线项目资料库、人员资料库与产能规划调度桌面软件",
   "main": "electron/main.cjs",
   "author": "Project Resource Console",
   "license": "UNLICENSED",
@@ -13,68 +13,16 @@
     "build:win": "electron-builder --win nsis portable --publish never",
     "templates": "node scripts/create-templates.mjs"
   },
-  "dependencies": {
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "electron": "^37.2.3",
-    "electron-builder": "^26.0.12",
-    "jsdom": "^29.1.1"
-  },
+  "dependencies": {"xlsx": "^0.18.5"},
+  "devDependencies": {"electron": "^37.2.3","electron-builder": "^26.0.12","jsdom": "^29.1.1"},
   "build": {
     "appId": "com.local.projectresourceconsole",
     "productName": "项目人员调度台",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "electron/**/*",
-      "src/**/*",
-      "package.json",
-      "node_modules/xlsx/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "templates",
-        "to": "templates",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "win": {
-      "icon": "build/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "artifactName": "项目人员调度台-Setup-${version}-${arch}.${ext}",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "packElevateHelper": false,
-      "shortcutName": "项目人员调度台",
-      "installerLanguages": [
-        "zh_CN"
-      ],
-      "language": "2052"
-    },
-    "portable": {
-      "artifactName": "项目人员调度台-Portable-${version}-${arch}.${ext}"
-    }
+    "directories": {"output": "release","buildResources": "build"},
+    "files": ["electron/**/*","src/**/*","package.json","node_modules/xlsx/**/*"],
+    "extraResources": [{"from": "templates","to": "templates","filter": ["**/*"]}],
+    "win": {"icon": "build/icon.ico","target": [{"target": "nsis","arch": ["x64"]},{"target": "portable","arch": ["x64"]}]},
+    "nsis": {"artifactName": "项目人员调度台-Setup-${version}-${arch}.${ext}","oneClick": false,"allowToChangeInstallationDirectory": true,"createDesktopShortcut": true,"createStartMenuShortcut": true,"packElevateHelper": false,"shortcutName": "项目人员调度台","installerLanguages": ["zh_CN"],"language": "2052"},
+    "portable": {"artifactName": "项目人员调度台-Portable-${version}-${arch}.${ext}"}
   }
 }
