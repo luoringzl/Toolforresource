@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>规划中心 · 项目人员调度台</title>
   <link rel="stylesheet" href="planning-center/planning.css">
+  <link rel="stylesheet" href="planning-center/work-calendar.css">
 </head>
 <body>
   <div class="planning-shell">
@@ -26,7 +27,7 @@
 
     <main class="planning-main">
       <header class="planning-topbar">
-        <div><p>资源规划 / V2.0</p><h1 id="planning-title">资源总览</h1></div>
+        <div><p>资源规划 / V2.1</p><h1 id="planning-title">资源总览</h1></div>
         <div class="planning-controls"><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
       </header>
       <div id="planning-message" class="planning-message" hidden></div>
@@ -34,7 +35,7 @@
       <section class="planning-view active" id="planning-overview">
         <div id="planning-summary"></div>
         <div class="planning-section"><div class="planning-section-head"><div><h2>30 / 60 / 90 天产能预测</h2><p>周期由 V7 Planning Settings 驱动</p></div></div><div id="planning-horizons"></div></div>
-        <div class="planning-section"><div class="planning-section-head"><div><h2>团队产能热力图</h2><p>按日汇总全部在岗人员的有效产能与项目占用</p></div></div><div id="planning-heatmap"></div></div>
+        <div class="planning-section"><div class="planning-section-head"><div><h2>团队产能热力图</h2><p>按日汇总全部在岗人员的有效产能与项目占用，休息日自动归零</p></div></div><div id="planning-heatmap"></div></div>
         <div class="planning-two-columns"><div class="planning-section"><div class="planning-section-head"><div><h2>优先告警</h2><p>严重冲突与无候选需求优先</p></div></div><div id="planning-alerts"></div></div><div class="planning-section"><div class="planning-section-head"><div><h2>冲突人员</h2><p>按最大超额和冲突天数排序</p></div></div><div id="planning-conflicts"></div></div></div>
       </section>
 
@@ -52,7 +53,7 @@
       </section>
 
       <section class="planning-view" id="planning-settings">
-        <div class="planning-section"><div class="planning-section-head"><div><h2>V7 Planning Settings</h2><p>集中控制预测、甘特、推荐和自动排期参数</p></div></div><div id="planning-settings-root"></div></div>
+        <div class="planning-section"><div class="planning-section-head"><div><h2>V7 Planning Settings</h2><p>集中控制预测、甘特、推荐、自动排期和公司工作日历</p></div></div><div id="planning-settings-root"></div></div>
       </section>
 
       <section class="planning-view" id="planning-health">
