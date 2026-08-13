@@ -197,5 +197,9 @@ test('restoreSnapshotPreservingAudit 恢复业务数据但保留当前审计时�
   const restored=restoreSnapshotPreservingAudit(before,current);
   assert.equal(restored.assignments.length,0);
   assert.deepEqual(restored.activity,current.activity);
-  assert.deepEqual(commandAuditTrail(restored),current.activity);
+  const trail=commandAuditTrail(restored);
+  assert.equal(trail.length,1);
+  assert.equal(trail[0].id,'audit-1');
+  assert.equal(trail[0].type,'command-audit');
+  assert.deepEqual(trail[0].commandTypes,[]);
 });
