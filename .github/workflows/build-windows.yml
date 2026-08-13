@@ -27,7 +27,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Verify
-        run: npm test
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem tests/*.test.mjs | Sort-Object Name
+          foreach ($file in $files) {
+            Write-Host "Running $($file.Name)"
+            $output = & node --test $file.FullName 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              $text = ($output | Out-String).Trim()
+              $escaped = $text.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+              Write-Output "::error title=Failed $($file.Name)::$escaped"
+              exit 1
+            }
+          }
       - name: Create import templates
         run: npm run templates
       - name: Build installer and portable EXE
