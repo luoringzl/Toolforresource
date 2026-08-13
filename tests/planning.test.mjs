@@ -20,14 +20,16 @@ function fixture(){
   return db;
 }
 
-test('按日期计算内部与外部项目产能占用',()=>{
+test('按日期计算内部与外部项目产能占用并跳过周末',()=>{
   const db=fixture();
   const series=buildPersonCapacitySeries(db,db.people[0],{startDate:'2026-08-11',days:8});
   assert.equal(series[0].date,'2026-08-11');
   assert.equal(series[0].usage,60);
   assert.equal(series[1].usage,90);
   assert.equal(series[5].date,'2026-08-16');
-  assert.equal(series[5].usage,30);
+  assert.equal(series[5].usage,0);
+  assert.equal(series[5].workingDay,false);
+  assert.equal(series[7].date,'2026-08-18');
   assert.equal(series[7].usage,30);
 });
 
@@ -55,13 +57,13 @@ test('查找满足连续工作日需求的首个可用日期',()=>{
   assert.equal(firstDateWithCapacity(series,100,{consecutiveDays:2}),'2026-08-19');
 });
 
-test('30/60/90 天个人预测输出窗口指标',()=>{
+test('30/60/90 天个人预测输出窗口指标并从首个工作日开始推荐',()=>{
   const db=fixture();
   const forecast=forecastPersonCapacity(db,'u1',{startDate:'2026-08-01',horizons:[30,60,90],requiredCapacity:80,consecutiveDays:2});
   assert.equal(forecast.windows[30].days,30);
   assert.equal(forecast.windows[60].days,60);
   assert.equal(forecast.windows[90].days,90);
-  assert.equal(forecast.windows[30].firstDateWithCapacity,'2026-08-01');
+  assert.equal(forecast.windows[30].firstDateWithCapacity,'2026-08-03');
   assert.ok(forecast.windows[30].minAvailable<=40);
 });
 
