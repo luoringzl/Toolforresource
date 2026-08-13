@@ -77,7 +77,7 @@ export function createAutoPlanningController({getDatabase,getStartDate,canManage
     renderRoots();
     if(!result.ok){showMessage(result.error||'关键路径优先级无法生成优化方案',true);return;}
     if(!priorityModel.priorities.length){showMessage(`没有 ready 需求可优化；${plan.blockedNeeds.length} 条需求保持阻塞`,plan.blockedNeeds.length>0);return;}
-    if(optimizationResult.recommended)showMessage(`按优先队列比较 ${priorityModel.priorities.length} 条 ready 需求，推荐“${optimizationResult.recommended.label}”；已排除 ${plan.blockedNeeds.length} 条阻塞需求`);
+    if(optimizationResult.recommended)showMessage(`按优先队列只比较 ${priorityModel.priorities.length} 条 ready 需求，推荐“${optimizationResult.recommended.label}”；已排除 ${plan.blockedNeeds.length} 条阻塞需求`);
     else showMessage('关键路径门控后暂无可比较方案',true);
   }
 
