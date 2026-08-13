@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="planning-center/optimizer.css">
   <link rel="stylesheet" href="planning-center/scenario.css">
   <link rel="stylesheet" href="planning-center/history.css">
+  <link rel="stylesheet" href="planning-center/project-network.css">
 </head>
 <body>
   <div class="planning-shell">
@@ -17,6 +18,7 @@
       <nav>
         <button class="planning-nav active" data-planning-view="overview"><span>⌂</span>资源总览</button>
         <button class="planning-nav" data-planning-view="gantt"><span>▤</span>甘特排期</button>
+        <button class="planning-nav" data-project-network><span>⌘</span>项目网络</button>
         <button class="planning-nav" data-planning-view="recommend"><span>◎</span>需求推荐</button>
         <button class="planning-nav" data-planning-view="auto"><span>↔</span>自动排期</button>
         <button class="planning-nav" data-planning-view="scenario"><span>◫</span>情景沙盘</button>
@@ -31,7 +33,7 @@
 
     <main class="planning-main">
       <header class="planning-topbar">
-        <div><p>资源规划 / V2.4</p><h1 id="planning-title">资源总览</h1></div>
+        <div><p>资源规划 / V2.5</p><h1 id="planning-title">资源总览</h1></div>
         <div class="planning-controls"><div class="history-controls" id="planning-history-controls"></div><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
       </header>
       <div id="planning-message" class="planning-message" hidden></div>
@@ -46,6 +48,14 @@
       <section class="planning-view" id="planning-gantt">
         <div class="planning-section"><div class="planning-section-head"><div><h2>Resource Gantt</h2><p>人员 × 日期，项目条叠加逐日产能状态</p></div><div class="gantt-controls"><button class="planning-btn small" data-gantt="resource" data-dir="prev">←</button><span id="resource-gantt-range"></span><button class="planning-btn small" data-gantt="resource" data-dir="next">→</button></div></div><div id="resource-gantt"></div></div>
         <div class="planning-section"><div class="planning-section-head"><div><h2>Project Gantt</h2><p>项目主线、人员分工、资产/视频里程碑与 DDL</p></div><div class="gantt-controls"><button class="planning-btn small" data-gantt="project" data-dir="prev">←</button><span id="project-gantt-range"></span><button class="planning-btn small" data-gantt="project" data-dir="next">→</button></div></div><div id="project-gantt"></div></div>
+      </section>
+
+      <section class="planning-view" id="planning-network">
+        <div id="project-network-summary"></div>
+        <div class="planning-section"><div class="planning-section-head"><div><h2>关键路径</h2><p>按公司工作日历计算最早/最晚日期、总浮动时间与主关键链</p></div></div><div id="project-critical-path"></div></div>
+        <div class="planning-section"><div class="planning-section-head"><div><h2>项目网络计划</h2><p>关键项目零浮动；DDL 风险按工作日计算</p></div></div><div id="project-network-table"></div></div>
+        <div class="planning-section"><div class="planning-section-head"><div><h2>依赖与里程碑编辑</h2><p>支持 FS / SS / FF / SF、Lag / Lead 与自定义业务里程碑</p></div></div><div id="project-network-editor"></div></div>
+        <div class="planning-two-columns"><div class="planning-section"><div class="planning-section-head"><div><h2>当前依赖</h2><p>循环依赖会在写入前被拒绝</p></div></div><div id="project-dependency-list"></div></div><div class="planning-section"><div class="planning-section-head"><div><h2>自定义里程碑</h2><p>资产完成、视频完成和 DDL 为内置里程碑</p></div></div><div id="project-milestone-list"></div></div></div>
       </section>
 
       <section class="planning-view" id="planning-recommend">
@@ -79,5 +89,6 @@
   <div class="planning-dialog-root" id="planning-dialog-root"></div>
   <script type="module" src="planning-center/planning-app.mjs"></script>
   <script type="module" src="planning-center/history-bootstrap.mjs"></script>
+  <script type="module" src="planning-center/project-network-bootstrap.mjs"></script>
 </body>
 </html>
