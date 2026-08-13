@@ -6,6 +6,7 @@
   <title>规划中心 · 项目人员调度台</title>
   <link rel="stylesheet" href="planning-center/planning.css">
   <link rel="stylesheet" href="planning-center/work-calendar.css">
+  <link rel="stylesheet" href="planning-center/optimizer.css">
 </head>
 <body>
   <div class="planning-shell">
@@ -27,7 +28,7 @@
 
     <main class="planning-main">
       <header class="planning-topbar">
-        <div><p>资源规划 / V2.1</p><h1 id="planning-title">资源总览</h1></div>
+        <div><p>资源规划 / V2.2</p><h1 id="planning-title">资源总览</h1></div>
         <div class="planning-controls"><label>规划起点<input id="planning-start-date" type="date"></label><button class="planning-btn" id="planning-refresh">刷新数据</button></div>
       </header>
       <div id="planning-message" class="planning-message" hidden></div>
@@ -49,7 +50,12 @@
       </section>
 
       <section class="planning-view" id="planning-auto">
-        <div class="planning-section"><div class="planning-section-head"><div><h2>自动排期草案</h2><p>仅在模拟数据库中生成建议；应用后才写入真实分工</p></div><button class="planning-btn primary" id="generate-auto-draft">生成排期草案</button></div><div id="planning-auto-draft"></div></div>
+        <div class="planning-section">
+          <div class="planning-section-head"><div><h2>自动排期与多方案优化</h2><p>先在模拟数据库生成多种资源组合，再按业务目标排序；应用后才写入真实分工</p></div><div id="planning-optimizer-controls"></div></div>
+          <div id="planning-optimizer-result"></div>
+          <div class="section-mini-head"><strong>当前草案明细</strong><span class="draft-label" id="planning-draft-label"></span></div>
+          <div id="planning-auto-draft"></div>
+        </div>
       </section>
 
       <section class="planning-view" id="planning-settings">

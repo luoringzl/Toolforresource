@@ -10,6 +10,7 @@ import {
 } from '../planning/planning-runtime.mjs';
 import { planningDashboardAlerts } from '../planning/planning-dashboard.mjs';
 import { autoScheduleDraftCommands } from '../planning/auto-scheduler.mjs';
+import { optimizeSchedule, scheduleOptionCommands } from '../planning/schedule-optimizer.mjs';
 import { updatePlanningSettings, resetPlanningSettings } from '../services/planning-settings.mjs';
 import { planningSettingsFromDatabase } from '../schema/migrations.mjs';
 import { localDateKey } from '../utils/date.mjs';
@@ -26,6 +27,7 @@ import {
   renderDatabaseHealth
 } from './renderers.mjs';
 import { installWorkCalendarFields, readWorkCalendarPatch } from './work-calendar-ui.mjs';
+import { renderOptimizerControls, renderOptimizationResult } from './optimizer-ui.mjs';
 
 const api=window.desktopAPI||createBrowserAPI();
 const store=createAppStore();
@@ -36,6 +38,8 @@ const $$=(selector,parent=document)=>[...parent.querySelectorAll(selector)];
 let currentUser=null;
 let dashboardModel=null;
 let currentDraft=null;
+let currentDraftLabel='';
+let optimizationResult=null;
 let resourceOffset=0;
 let projectOffset=0;
 let currentPlanningView='overview';
@@ -94,6 +98,14 @@ function setPlanningView(view){
   if(view==='health')refreshDatabaseHealth();
 }
 
+function resetPlanningState(){
+  currentDraft=null;
+  currentDraftLabel='';
+  optimizationResult=null;
+  resourceOffset=0;
+  projectOffset=0;
+}
+
 function ganttRangeText(viewport){
   const columns=viewport?.columns||[];
   return columns.length?`${columns[0]} → ${columns.at(-1)}`:'无可见日期';
@@ -148,7 +160,7 @@ function renderSettings(){
     if(!next.ok){showMessage(next.error,true);return;}
     const result=await applicationService.replaceDatabase(next.database,{syncAccounts:false});
     if(!result.ok){showMessage(result.error||'规划参数保存失败',true);return;}
-    currentDraft=null;resourceOffset=0;projectOffset=0;
+    resetPlanningState();
     renderPlanning();
     showMessage('规划参数已保存并立即应用');
   };
@@ -158,10 +170,23 @@ function renderSettings(){
     if(!next.ok){showMessage(next.error,true);return;}
     const result=await applicationService.replaceDatabase(next.database,{syncAccounts:false});
     if(!result.ok){showMessage(result.error||'恢复默认值失败',true);return;}
-    currentDraft=null;resourceOffset=0;projectOffset=0;
+    resetPlanningState();
     renderPlanning();
     showMessage('规划参数已恢复为默认值');
   };
+}
+
+function renderOptimizer(){
+  const controls=$('#planning-optimizer-controls');
+  const resultRoot=$('#planning-optimizer-result');
+  if(!controls||!resultRoot)return;
+  controls.innerHTML=renderOptimizerControls();
+  if(optimizationResult)$('#schedule-objective').value=optimizationResult.objective;
+  resultRoot.innerHTML=renderOptimizationResult(optimizationResult,{canManage:canManage()});
+  const label=$('#planning-draft-label');
+  if(label)label.textContent=currentDraftLabel;
+  bindOptimizerControls();
+  bindOptimizerOptions();
 }
 
 function renderPlanning(){
@@ -173,38 +198,87 @@ function renderPlanning(){
   $('#planning-conflicts').innerHTML=renderConflicts(dashboardModel);
   $('#planning-recommendations').innerHTML=renderNeedRecommendations(dashboardModel);
   $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+  renderOptimizer();
   renderGantts();
   renderSettings();
   bindDraftApply();
 }
 
+function draftWarning(draft){
+  const delayed=draft?.summary?.delayedProposals||0;
+  const unresolved=draft?.summary?.unresolvedCapacity||0;
+  return [delayed?`${delayed} 条建议会延期`:null,unresolved?`仍有 ${unresolved}% 产能未解决`:null].filter(Boolean).join('；');
+}
+
+async function applyCommands(commands,draft,label='排期方案'){
+  if(!canManage()){showMessage('当前账号只有查看权限，不能修改真实排班',true);return;}
+  if(!commands.length)return;
+  const warning=draftWarning(draft);
+  const text=`将一次写入 ${commands.length} 条项目分工。${warning?`${warning}。`:''}写入会使用单次原子批量提交。`;
+  if(!await openConfirm(`应用${label}`,text,{confirmLabel:'应用方案'}))return;
+  const result=await applicationService.dispatchMany(commands,{now:new Date()});
+  if(!result.ok){showMessage(`方案应用失败：${result.error||'未知错误'}`,true);return;}
+  resetPlanningState();
+  renderPlanning();
+  showMessage(`已应用 ${commands.length} 条排期建议`);
+}
+
 function bindDraftApply(){
   const button=$('#apply-auto-draft');
   if(!button||!currentDraft)return;
-  button.onclick=async()=>{
-    if(!canManage()){showMessage('当前账号只有查看权限',true);return;}
-    if(!currentDraft.proposals.length)return;
-    const delayed=currentDraft.summary.delayedProposals||0;
-    const unresolved=currentDraft.summary.unresolvedCapacity||0;
-    const warning=[delayed?`${delayed} 条建议会延期`:null,unresolved?`仍有 ${unresolved}% 产能未解决`:null].filter(Boolean).join('；');
-    const text=`将一次写入 ${currentDraft.proposals.length} 条项目分工。${warning?`${warning}。`:''}写入会使用单次原子批量提交。`;
-    if(!await openConfirm('应用自动排期草案',text,{confirmLabel:'应用草案'}))return;
-    const commands=autoScheduleDraftCommands(currentDraft);
-    const result=await applicationService.dispatchMany(commands,{now:new Date()});
-    if(!result.ok){showMessage(`草案应用失败：${result.error||'未知错误'}`,true);return;}
-    currentDraft=null;
-    renderPlanning();
-    showMessage(`已应用 ${commands.length} 条排期建议`);
-  };
+  button.onclick=()=>applyCommands(autoScheduleDraftCommands(currentDraft),currentDraft,currentDraftLabel||'当前草案');
 }
 
-async function generateDraft(){
-  if(!canManage()){showMessage('只读账号不能生成可应用的排期草案',true);return;}
+function generateDraft(){
   currentDraft=generateConfiguredAutoScheduleDraft(database(),{startDate:startDate()});
-  $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:true});
+  currentDraftLabel='快速单方案';
+  optimizationResult=null;
+  $('#planning-optimizer-result').innerHTML=renderOptimizationResult(null,{canManage:canManage()});
+  $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+  $('#planning-draft-label').textContent=currentDraftLabel;
   bindDraftApply();
   const summary=currentDraft.summary;
   showMessage(`草案已生成：${summary.proposalCount} 条建议，${summary.delayedProposals} 条延期，未解决 ${summary.unresolvedCapacity}%`);
+}
+
+function generateOptimization(){
+  const objective=$('#schedule-objective')?.value||'balanced';
+  optimizationResult=optimizeSchedule(database(),{objective,startDate:startDate()});
+  currentDraft=optimizationResult.recommended?.draft||null;
+  currentDraftLabel=optimizationResult.recommended?`推荐：${optimizationResult.recommended.label}`:'';
+  $('#planning-optimizer-result').innerHTML=renderOptimizationResult(optimizationResult,{canManage:canManage()});
+  $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+  $('#planning-draft-label').textContent=currentDraftLabel;
+  bindOptimizerOptions();
+  bindDraftApply();
+  if(optimizationResult.recommended)showMessage(`已比较 ${optimizationResult.options.length} 个不重复方案，推荐“${optimizationResult.recommended.label}”`);
+  else showMessage('当前没有可生成的排期方案',true);
+}
+
+function bindOptimizerControls(){
+  const quick=$('#generate-auto-draft');
+  const optimize=$('#generate-optimized-options');
+  if(quick)quick.onclick=generateDraft;
+  if(optimize)optimize.onclick=generateOptimization;
+}
+
+function bindOptimizerOptions(){
+  if(!optimizationResult)return;
+  $$('[data-preview-option]').forEach(button=>button.onclick=()=>{
+    const option=optimizationResult.options.find(item=>item.id===button.dataset.previewOption);
+    if(!option)return;
+    currentDraft=option.draft;
+    currentDraftLabel=`方案 #${option.rank} · ${option.label}`;
+    $$('.optimizer-option').forEach(card=>card.dataset.previewing=String(card.dataset.optionId===option.id));
+    $('#planning-auto-draft').innerHTML=renderAutoDraft(currentDraft,{canManage:canManage()});
+    $('#planning-draft-label').textContent=currentDraftLabel;
+    bindDraftApply();
+  });
+  $$('[data-apply-option]').forEach(button=>button.onclick=()=>{
+    const option=optimizationResult.options.find(item=>item.id===button.dataset.applyOption);
+    if(!option)return;
+    applyCommands(scheduleOptionCommands(option),option.draft,option.label);
+  });
 }
 
 async function refreshDatabaseHealth(){
@@ -225,7 +299,7 @@ async function refreshDatabaseHealth(){
       const result=await api.restoreRecoveryPoint(name);
       if(!result?.ok){showMessage(result?.error||'数据库恢复失败',true);return;}
       await applicationService.load();
-      currentDraft=null;resourceOffset=0;projectOffset=0;
+      resetPlanningState();
       renderPlanning();
       await refreshDatabaseHealth();
       showMessage(`数据库已恢复到 ${name}`);
@@ -248,7 +322,7 @@ async function reloadFromStorage(){
   try{
     const loaded=migrateDatabase(await api.loadData());
     store.replaceDatabase(loaded,{source:'planning-refresh'});
-    currentDraft=null;resourceOffset=0;projectOffset=0;
+    resetPlanningState();
     renderPlanning();
     if(currentPlanningView==='health')await refreshDatabaseHealth();
     showMessage('规划数据已刷新');
@@ -260,8 +334,7 @@ async function reloadFromStorage(){
 function bindEvents(){
   $$('.planning-nav').forEach(button=>button.onclick=()=>setPlanningView(button.dataset.planningView));
   $('#planning-refresh').onclick=reloadFromStorage;
-  $('#planning-start-date').onchange=()=>{currentDraft=null;resourceOffset=0;projectOffset=0;renderPlanning();};
-  $('#generate-auto-draft').onclick=generateDraft;
+  $('#planning-start-date').onchange=()=>{resetPlanningState();renderPlanning();};
   $('#refresh-diagnostics').onclick=refreshDatabaseHealth;
   $$('[data-gantt]').forEach(button=>button.onclick=()=>{
     const config=resolvePlanningRuntimeConfig(database(),{startDate:startDate()});
